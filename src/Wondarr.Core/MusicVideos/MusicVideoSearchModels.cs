@@ -46,6 +46,10 @@ public sealed record MusicVideoQuery(
 /// </param>
 /// <param name="FoundBy">Where the candidate came from.</param>
 /// <param name="Score">The ranking score: higher is better. Only the order is meant to matter.</param>
+/// <param name="ArtistNamed">
+/// Whether one of the song's artists is credited on the video or named in its title ("Artist - Title"). A user upload
+/// can be artist-named and still never confident.
+/// </param>
 public sealed record MusicVideoCandidate(
     string VideoId,
     string Title,
@@ -55,7 +59,8 @@ public sealed record MusicVideoCandidate(
     string ThumbnailUrl,
     bool Confident,
     MusicVideoFoundBy FoundBy,
-    int Score)
+    int Score,
+    bool ArtistNamed = false)
 {
     /// <summary>The thumbnail URL YouTube serves for a video id.</summary>
     /// <param name="videoId">The video id.</param>
@@ -122,9 +127,13 @@ public interface IMusicVideoDownloader
     /// <param name="videoId">The YouTube video id.</param>
     /// <param name="maxHeight">The tallest picture to take, or <see langword="null"/> for no cap.</param>
     /// <param name="cancellationToken">Cancels the download.</param>
+    /// <param name="started">
+    /// Called once the download really begins, after it has waited its turn for the shared yt-dlp gate; until then the
+    /// video is only queued. May be <see langword="null"/>.
+    /// </param>
     /// <returns>The files, in a work folder that <see cref="Discard"/> removes.</returns>
     /// <exception cref="Exception">The download failed; the message says why and holds no secret.</exception>
-    Task<MusicVideoDownload> DownloadAsync(string videoId, int? maxHeight, CancellationToken cancellationToken);
+    Task<MusicVideoDownload> DownloadAsync(string videoId, int? maxHeight, CancellationToken cancellationToken, Func<Task>? started = null);
 
     /// <summary>Deletes the work folder of a download and everything left in it. Never throws.</summary>
     /// <param name="download">What <see cref="DownloadAsync"/> returned.</param>
@@ -143,7 +152,7 @@ internal sealed class NoMusicVideoFinder : IMusicVideoFinder
 internal sealed class NoMusicVideoDownloader : IMusicVideoDownloader
 {
     /// <inheritdoc />
-    public Task<MusicVideoDownload> DownloadAsync(string videoId, int? maxHeight, CancellationToken cancellationToken) =>
+    public Task<MusicVideoDownload> DownloadAsync(string videoId, int? maxHeight, CancellationToken cancellationToken, Func<Task>? started = null) =>
         throw new InvalidOperationException("No YouTube source is registered, so a music video cannot be downloaded.");
 
     /// <inheritdoc />

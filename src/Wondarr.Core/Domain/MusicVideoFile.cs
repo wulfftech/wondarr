@@ -55,6 +55,12 @@ public sealed class MusicVideoFile : EntityBase
     /// <summary>Gets or sets the picture height in pixels, or <see langword="null"/>.</summary>
     public int? Height { get; set; }
 
+    /// <summary>Gets or sets the video codec the probe reported, an empty text when the probe found none, or <see langword="null"/> when the file was probed before codecs were kept.</summary>
+    public string? VideoCodec { get; set; }
+
+    /// <summary>Gets or sets the audio codec the probe reported, an empty text when the probe found none, or <see langword="null"/> when the file was probed before codecs were kept.</summary>
+    public string? AudioCodec { get; set; }
+
     /// <summary>Gets or sets the artist the file name says, or <see langword="null"/>.</summary>
     public string? ParsedArtist { get; set; }
 

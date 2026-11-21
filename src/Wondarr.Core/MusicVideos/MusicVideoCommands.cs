@@ -71,7 +71,7 @@ public sealed partial class MusicVideoSearchCommandHandler : ICommandHandler
         }
 
         var queued = await _search
-            .QueueDownloadAsync(body.SongId, confident.VideoId, confident.FoundBy, context.Trigger, cancellationToken)
+            .QueueDownloadAsync(body.SongId, confident.VideoId, confident.FoundBy, context.Trigger, cancellationToken, videoTitle: confident.Title)
             .ConfigureAwait(false);
 
         LogSearched(_logger, body.SongId, confident.VideoId, queued.Outcome);
@@ -121,7 +121,7 @@ public sealed class MusicVideoDownloadCommandHandler : ICommandHandler
         }
 
         return await _importer
-            .ImportAsync(body.SongId, body.YouTubeVideoId, body.FoundBy, cancellationToken)
+            .ImportAsync(body.SongId, body.YouTubeVideoId, body.FoundBy, cancellationToken, body.VideoTitle)
             .ConfigureAwait(false);
     }
 }
@@ -217,7 +217,7 @@ public sealed partial class MusicVideoMissingSearchCommandHandler : ICommandHand
                 // Only a confident match is downloaded by a schedule; the rest wait for a person to pick.
                 if (result.AutoDownload is { } confident
                     && (await search
-                        .QueueDownloadAsync(songId, confident.VideoId, confident.FoundBy, CommandTrigger.Scheduled, cancellationToken)
+                        .QueueDownloadAsync(songId, confident.VideoId, confident.FoundBy, CommandTrigger.Scheduled, cancellationToken, videoTitle: confident.Title)
                         .ConfigureAwait(false)).Outcome == MusicVideoQueueOutcome.Queued)
                 {
                     queued++;

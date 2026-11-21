@@ -2,7 +2,12 @@ import { ActionIcon, Group, Loader, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { Clapperboard, Search, Video, VideoOff } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { isVideoBusy, useSearchMusicVideo, type MusicVideoCandidateResource } from '../api/musicVideos';
+import {
+  downloadingMessage,
+  isVideoBusy,
+  useSearchMusicVideo,
+  type MusicVideoCandidateResource,
+} from '../api/musicVideos';
 import type { SongResource } from '../api/songs';
 import type { PagedColumn } from './PagedTable';
 import { MusicVideoModal } from './MusicVideoModal';
@@ -12,7 +17,6 @@ import { MusicVideoModal } from './MusicVideoModal';
 interface DialogState {
   initialCandidates?: MusicVideoCandidateResource[];
   initialPartial?: boolean;
-  searchOnOpen?: boolean;
 }
 
 /** A film icon with a small magnifier on it: "find this song's video". */
@@ -39,7 +43,10 @@ export function MusicVideoCell({ song }: { song: SongResource }) {
     search.mutate(songId, {
       onSuccess: (result) => {
         if (result.queued) {
-          notifications.show({ message: 'Downloading music video', color: 'blue' });
+          notifications.show({
+            message: downloadingMessage(result.candidates.find((candidate) => candidate.confident)?.title),
+            color: 'blue',
+          });
 
           return;
         }
@@ -76,7 +83,8 @@ export function MusicVideoCell({ song }: { song: SongResource }) {
     label = `Music video for ${song.title} failed`;
     icon = <VideoOff size={16} />;
     color = 'red';
-    onClick = () => setDialog({ searchOnOpen: true });
+    // The modal opens on the failed view; nothing is searched or downloaded until the person asks.
+    onClick = () => setDialog({});
   }
 
   return (
@@ -98,9 +106,9 @@ export function MusicVideoCell({ song }: { song: SongResource }) {
         <MusicVideoModal
           songId={songId}
           songTitle={song.title}
+          songDurationMs={song.durationMs === null ? null : Number(song.durationMs)}
           initialCandidates={dialog.initialCandidates}
           initialPartial={dialog.initialPartial}
-          searchOnOpen={dialog.searchOnOpen}
           opened
           onClose={() => setDialog(null)}
         />
@@ -116,11 +124,13 @@ export function musicVideoColumn(): PagedColumn<SongResource> {
   return {
     label: 'Music video',
     sortKey: null,
-    width: 70,
+    width: 90,
+    // A visible "Video" beside the icon, as the Search column says "Search"; the full name stays for screen readers.
     header: (
       <Tooltip label="Music video">
-        <Group gap={0} justify="center" aria-label="Music video">
-          <Clapperboard size={16} />
+        <Group gap={4} wrap="nowrap" aria-label="Music video">
+          <Clapperboard size={14} aria-hidden />
+          <span>Video</span>
         </Group>
       </Tooltip>
     ),

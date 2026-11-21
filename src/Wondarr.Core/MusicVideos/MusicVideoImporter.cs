@@ -38,9 +38,10 @@ public interface IMusicVideoImporter
     /// <param name="videoId">The YouTube video id.</param>
     /// <param name="foundBy">How the video was found.</param>
     /// <param name="cancellationToken">Cancels the download.</param>
+    /// <param name="videoTitle">The video's title as the source showed it, kept on the row; <see langword="null"/> when not known.</param>
     /// <returns>What was done, for the command's message.</returns>
     /// <exception cref="MusicVideoImportException">The download or the check failed; the row says why.</exception>
-    Task<string> ImportAsync(long songId, string videoId, MusicVideoFoundBy foundBy, CancellationToken cancellationToken);
+    Task<string> ImportAsync(long songId, string videoId, MusicVideoFoundBy foundBy, CancellationToken cancellationToken, string? videoTitle = null);
 }
 
 /// <inheritdoc />
@@ -106,13 +107,13 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
     }
 
     /// <inheritdoc />
-    public async Task<string> ImportAsync(long songId, string videoId, MusicVideoFoundBy foundBy, CancellationToken cancellationToken)
+    public async Task<string> ImportAsync(long songId, string videoId, MusicVideoFoundBy foundBy, CancellationToken cancellationToken, string? videoTitle = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(videoId);
 
         try
         {
-            return await ImportCoreAsync(songId, videoId, foundBy, cancellationToken).ConfigureAwait(false);
+            return await ImportCoreAsync(songId, videoId, foundBy, videoTitle, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not MusicVideoImportException)
         {
@@ -137,7 +138,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         }
     }
 
-    private async Task<string> ImportCoreAsync(long songId, string videoId, MusicVideoFoundBy foundBy, CancellationToken cancellationToken)
+    private async Task<string> ImportCoreAsync(long songId, string videoId, MusicVideoFoundBy foundBy, string? videoTitle, CancellationToken cancellationToken)
     {
         var options = _options.CurrentValue;
         var prefix = $"Song {songId.ToString(CultureInfo.InvariantCulture)}: ";
@@ -174,19 +175,19 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
             throw new MusicVideoImportException(held);
         }
 
-        if (fresh)
-        {
-            await _database.MusicVideos
-                .Where(video => video.SongId == songId && video.Status == MusicVideoStatus.Queued)
-                .ExecuteUpdateAsync(set => set.SetProperty(video => video.Status, MusicVideoStatus.Downloading), cancellationToken)
-                .ConfigureAwait(false);
-        }
-
         MusicVideoDownload download;
 
         try
         {
-            download = await _downloader.DownloadAsync(videoId, options.MaxHeight, cancellationToken).ConfigureAwait(false);
+            // The row stays Queued while the download waits for the shared yt-dlp gate, and is Downloading only
+            // once the gate is held and the download really starts.
+            download = await _downloader
+                .DownloadAsync(
+                    videoId,
+                    options.MaxHeight,
+                    cancellationToken,
+                    fresh ? () => MarkDownloadingAsync(songId, cancellationToken) : null)
+                .ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -198,7 +199,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
 
         try
         {
-            return await CheckAndFileAsync(songId, videoId, foundBy, fresh, download, options, prefix, cancellationToken).ConfigureAwait(false);
+            return await CheckAndFileAsync(songId, videoId, foundBy, videoTitle, fresh, download, options, prefix, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -206,10 +207,17 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         }
     }
 
+    private async Task MarkDownloadingAsync(long songId, CancellationToken cancellationToken) =>
+        await _database.MusicVideos
+            .Where(video => video.SongId == songId && video.Status == MusicVideoStatus.Queued)
+            .ExecuteUpdateAsync(set => set.SetProperty(video => video.Status, MusicVideoStatus.Downloading), cancellationToken)
+            .ConfigureAwait(false);
+
     private async Task<string> CheckAndFileAsync(
         long songId,
         string videoId,
         MusicVideoFoundBy foundBy,
+        string? videoTitle,
         bool fresh,
         MusicVideoDownload download,
         MusicVideoOptions options,
@@ -295,6 +303,8 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
             return prefix + "the video was removed while it was being filed; the file is at " + destination + ".";
         }
 
+        // The title belongs to the video: a different video drops the old title, the same one keeps it.
+        row.VideoTitle = videoTitle ?? (string.Equals(row.YouTubeVideoId, videoId, StringComparison.Ordinal) ? row.VideoTitle : null);
         row.Status = MusicVideoStatus.Present;
         row.YouTubeVideoId = videoId;
         row.FoundBy = foundBy;

@@ -3655,7 +3655,9 @@ export interface paths {
         put?: never;
         post: {
             parameters: {
-                query?: never;
+                query?: {
+                    autoDownload?: boolean;
+                };
                 header?: never;
                 path: {
                     songId: number;
@@ -7532,6 +7534,7 @@ export interface components {
             foundBy: components["schemas"]["MusicVideoFoundBy"];
             /** Format: int32 */
             score: number | string;
+            artistNamed: boolean;
         };
         /** @enum {string} */
         MusicVideoFoundBy: "musicBrainz" | "youTubeSearch" | "manual" | "existing";
@@ -7541,6 +7544,7 @@ export interface components {
         };
         MusicVideoGrabResource: {
             youTubeVideoId: null | string;
+            videoTitle?: null | string;
         };
         MusicVideoMatchBulkResource: {
             ids: null | (number | string)[];
@@ -7642,6 +7646,7 @@ export interface components {
             songId: number | string;
             status: components["schemas"]["MusicVideoStatus"];
             youTubeVideoId: null | string;
+            videoTitle: null | string;
             foundBy: components["schemas"]["MusicVideoFoundBy"];
             path: null | string;
             /** Format: int32 */

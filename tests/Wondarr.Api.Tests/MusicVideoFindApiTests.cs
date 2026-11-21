@@ -118,6 +118,36 @@ public sealed class MusicVideoFindApiTests : IDisposable
     }
 
     [Fact]
+    public async Task A_search_that_may_not_download_lists_a_confident_candidate_and_queues_nothing()
+    {
+        var songId = await QueueApiTests.SeedSongAsync(_factory, "Teardrop");
+        await EnableAsync();
+        _finder.Candidates = [Candidate(VideoId, confident: true, MusicVideoFoundBy.MusicBrainz, MusicVideoCandidateKind.Unknown, score: 10_000)];
+
+        var (status, body) = await SendAsync(HttpMethod.Post, $"/api/v1/musicvideo/song/{songId}/search?autoDownload=false");
+
+        status.Should().Be(HttpStatusCode.OK);
+        body!["queued"]!.GetValue<bool>().Should().BeFalse();
+        body["candidates"]!.AsArray().Should().ContainSingle();
+        await _commands.DidNotReceiveWithAnyArgs().EnqueueAsync(default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task A_confident_search_keeps_the_chosen_videos_title_on_the_row_and_the_resource_shows_it()
+    {
+        var songId = await QueueApiTests.SeedSongAsync(_factory, "Teardrop");
+        await EnableAsync();
+        _finder.Candidates = [Candidate(VideoId, confident: true, MusicVideoFoundBy.MusicBrainz, MusicVideoCandidateKind.Unknown, score: 10_000)];
+
+        await SendAsync(HttpMethod.Post, $"/api/v1/musicvideo/song/{songId}/search");
+        var (status, body) = await SendAsync(HttpMethod.Get, $"/api/v1/musicvideo/song/{songId}");
+
+        status.Should().Be(HttpStatusCode.OK);
+        body!["videoTitle"]!.GetValue<string>().Should().Be("Teardrop");
+        body["status"]!.GetValue<string>().Should().Be("queued");
+    }
+
+    [Fact]
     public async Task A_search_that_finds_nothing_returns_an_empty_list()
     {
         var songId = await QueueApiTests.SeedSongAsync(_factory, "Teardrop");

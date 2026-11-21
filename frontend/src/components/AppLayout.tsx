@@ -33,6 +33,8 @@ import { NavLink, Outlet, useLocation } from 'react-router';
 import { useEventStreamConnected } from '../app/signalr';
 import { useAppConfig } from '../api/context';
 import { useHealth } from '../api/hooks';
+import { useMusicVideoMatchSummary } from '../api/musicVideoMatch';
+import { useMusicVideosEnabled } from '../api/musicVideos';
 import { useMatchQueueTotal } from '../api/references';
 import { isProblem } from '../api/types';
 import { FeedbackButton } from './FeedbackButton';
@@ -115,11 +117,26 @@ function useAfterGrace(active: boolean, delayMs: number): boolean {
   return active && elapsed;
 }
 
+/** What the Match badge counts, split: the reference files to review and the music videos that fit more than one song. */
+function matchBadgeLabel(files: number, videos: number): string {
+  const parts = [
+    files > 0 ? `${String(files)} music ${files === 1 ? 'file' : 'files'}` : null,
+    videos > 0 ? `${String(videos)} music ${videos === 1 ? 'video' : 'videos'}` : null,
+  ].filter((part) => part !== null);
+
+  return `${String(files + videos)} to review: ${parts.join(', ')}`;
+}
+
 /** The *arr shell: a fixed navbar, a header with the instance name, health, feedback and the theme toggle. */
 export function AppLayout() {
   const { instanceName } = useAppConfig();
   const problemCount = useProblemCount();
   const matchTotal = useMatchQueueTotal();
+  const videosEnabled = useMusicVideosEnabled();
+  const videoSummary = useMusicVideoMatchSummary(videosEnabled);
+  // Unmatched videos are not in the library, so there is nothing to do for them: only the ambiguous ones count.
+  const videoAmbiguous = videosEnabled ? Number(videoSummary.data?.ambiguous ?? 0) : 0;
+  const matchBadge = (matchTotal ?? 0) + videoAmbiguous;
   const showDisconnected = useAfterGrace(!useEventStreamConnected(), DISCONNECTED_GRACE_MS);
   const { pathname } = useLocation();
   const [navOpened, { toggle: toggleNav, close: closeNav }] = useDisclosure(false);
@@ -175,13 +192,9 @@ export function AppLayout() {
             onClick={closeNav}
             leftSection={<Icon size={16} />}
             rightSection={
-              label === 'Match' && matchTotal !== null && matchTotal > 0 ? (
-                <Badge
-                  variant="light"
-                  color="yellow"
-                  aria-label={matchTotal === 1 ? '1 file to review' : `${matchTotal} files to review`}
-                >
-                  {matchTotal}
+              label === 'Match' && matchBadge > 0 ? (
+                <Badge variant="light" color="yellow" aria-label={matchBadgeLabel(matchTotal ?? 0, videoAmbiguous)}>
+                  {matchBadge}
                 </Badge>
               ) : undefined
             }

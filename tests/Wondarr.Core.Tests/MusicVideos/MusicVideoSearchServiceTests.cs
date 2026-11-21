@@ -80,6 +80,32 @@ public sealed class MusicVideoSearchServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Queueing_a_download_keeps_the_chosen_videos_title_on_the_row_and_in_the_command()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+
+        await using (var context = _harness.NewContext())
+        {
+            await _harness.Search(context).QueueDownloadAsync(
+                song.Id,
+                VideoId,
+                MusicVideoFoundBy.Manual,
+                CommandTrigger.Manual,
+                CancellationToken.None,
+                videoTitle: "  Massive Attack - Teardrop  ");
+        }
+
+        await using var fresh = _harness.NewContext();
+        (await fresh.MusicVideos.SingleAsync()).VideoTitle.Should().Be("Massive Attack - Teardrop");
+        await _harness.Commands.Received().EnqueueAsync(
+            MusicVideoDownloadCommandHandler.CommandName,
+            Arg.Is<string?>(body => body != null && body.Contains("Massive Attack - Teardrop")),
+            CommandTrigger.Manual,
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Queueing_a_download_makes_a_queued_row_and_queues_the_command()
     {
         await _harness.InitAsync();

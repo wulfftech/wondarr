@@ -99,4 +99,94 @@ public sealed class MusicVideoTitleMatcherTests
     {
         MusicVideoTitleMatcher.Similarity("Video", "(Official Video)").Should().Be(0);
     }
+
+    [Theory]
+    [InlineData("The Saddle Club - Hello World (Music Video) (1080p Remaster by aTunes)", "Hello World")]
+    [InlineData("hello world - the saddle club", "hello world")]
+    [InlineData("The Saddle Club \"Hello World\"", "Hello World")]
+    [InlineData("The Saddle Club & Friends – Hello World", "Hello World")]
+    [InlineData("The Saddle Club — Hello World", "Hello World")]
+    public void The_artist_is_found_in_the_title_in_each_of_the_known_forms(string videoTitle, string rest)
+    {
+        MusicVideoTitleMatcher.TitleAfterArtist(videoTitle, ["The Saddle Club"])!
+            .Should().StartWith(rest);
+        MusicVideoTitleMatcher.Evaluate("Hello World", ["The Saddle Club"], videoTitle).ArtistInTitle.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_title_that_names_another_artist_or_none_has_no_artist_in_it()
+    {
+        MusicVideoTitleMatcher.TitleAfterArtist("Hello World", ["The Saddle Club"]).Should().BeNull();
+        MusicVideoTitleMatcher.TitleAfterArtist("Someone Else - Hello World", ["The Saddle Club"]).Should().BeNull();
+    }
+
+    [Fact]
+    public void A_fan_upload_with_the_artist_in_its_title_is_titled_as_the_song_once_the_artist_is_taken_off()
+    {
+        var evaluation = MusicVideoTitleMatcher.Evaluate(
+            "Hello World",
+            ["The Saddle Club"],
+            "The Saddle Club - Hello World (Music Video) (1080p Remaster by aTunes)");
+
+        evaluation.ArtistInTitle.Should().BeTrue();
+        evaluation.IsTitledAsTheSong.Should().BeTrue();
+        evaluation.IsOtherVersion.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Queen - Under Pressure 1981 Live Video Full HD")]
+    [InlineData("Queen - Under Pressure (Vocals Only)")]
+    [InlineData("Queen & David Bowie - Under Pressure (Juno Ray Club Mix) [Audio]")]
+    [InlineData("Under Pressure (Rah Mix) (feat. David Bowie)")]
+    [InlineData("Queen - Under Pressure (Cover)")]
+    [InlineData("Queen - Under Pressure (Instrumental)")]
+    [InlineData("Queen - Under Pressure REACTION")]
+    public void A_live_vocals_only_mix_cover_instrumental_or_reaction_title_is_another_version_and_never_the_song(string videoTitle)
+    {
+        MusicVideoTitleMatcher.IsOtherVersion("Under Pressure", videoTitle).Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate("Under Pressure", ["Queen"], videoTitle).IsTitledAsTheSong.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_version_word_in_the_songs_own_title_is_not_another_version()
+    {
+        MusicVideoTitleMatcher.IsOtherVersion("Live and Let Die", "Paul McCartney - Live and Let Die").Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Teardrop (HD Live)")]
+    [InlineData("Teardrop (4K Remix)")]
+    [InlineData("Teardrop (1080p Live at Glastonbury)")]
+    [InlineData("Teardrop (Live at Wembley 1986 - Remastered)")]
+    [InlineData("Teardrop (Acoustic, Remastered 2011)")]
+    public void A_bracket_that_holds_a_version_word_is_never_stripped_as_noise(string videoTitle)
+    {
+        MusicVideoTitleMatcher.Strip(videoTitle).Title.Should().Be(videoTitle);
+        MusicVideoTitleMatcher.IsTitledAsTheSong("Teardrop", videoTitle).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Teardrop (HD)")]
+    [InlineData("Teardrop (1080p, Remastered 2011)")]
+    [InlineData("Teardrop (Music Video) (1080p Remaster by aTunes)")]
+    [InlineData("Teardrop [4K]")]
+    public void A_bracket_that_is_only_noise_is_stripped(string videoTitle)
+    {
+        MusicVideoTitleMatcher.Strip(videoTitle).Title.Should().Be("Teardrop");
+    }
+
+    [Fact]
+    public void A_version_word_in_the_artists_name_is_not_a_version()
+    {
+        MusicVideoTitleMatcher.IsOtherVersion("Lightning Crashes", "Live - Lightning Crashes", ["Live"]).Should().BeFalse();
+        MusicVideoTitleMatcher.IsOtherVersion("Shout Out to My Ex", "Little Mix - Shout Out to My Ex (Official Video)", ["Little Mix"]).Should().BeFalse();
+        MusicVideoTitleMatcher.IsOtherVersion("Lightning Crashes", "Live - Lightning Crashes (Live)", ["Live"]).Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_featured_artist_after_the_dash_is_not_the_artist_of_the_video()
+    {
+        MusicVideoTitleMatcher.TitleAfterArtist("Band B - Song X (feat. Band A)", ["Band A"]).Should().BeNull();
+        MusicVideoTitleMatcher.TitleAfterArtist("Song X - Band A (feat. Someone)", ["Band A"]).Should().Be("Song X");
+    }
 }

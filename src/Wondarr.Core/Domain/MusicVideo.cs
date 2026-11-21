@@ -55,6 +55,12 @@ public sealed class MusicVideo : EntityBase
     /// </summary>
     public string YouTubeVideoId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Gets or sets the title of the chosen YouTube video, set when a candidate is chosen, or <see langword="null"/>
+    /// for a video found in the folder or one chosen before the title was kept.
+    /// </summary>
+    public string? VideoTitle { get; set; }
+
     /// <summary>Gets or sets how the video was found.</summary>
     public MusicVideoFoundBy FoundBy { get; set; }
 

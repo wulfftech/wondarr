@@ -38,7 +38,7 @@ public sealed partial class YtDlpMusicVideoDownloader : IMusicVideoDownloader
     }
 
     /// <inheritdoc />
-    public async Task<MusicVideoDownload> DownloadAsync(string videoId, int? maxHeight, CancellationToken cancellationToken)
+    public async Task<MusicVideoDownload> DownloadAsync(string videoId, int? maxHeight, CancellationToken cancellationToken, Func<Task>? started = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(videoId);
 
@@ -48,7 +48,7 @@ public sealed partial class YtDlpMusicVideoDownloader : IMusicVideoDownloader
         try
         {
             var download = await _runner
-                .DownloadVideoAsync(videoId, workDirectory, maxHeight, cancellationToken)
+                .DownloadVideoAsync(videoId, workDirectory, maxHeight, cancellationToken, started)
                 .ConfigureAwait(false);
 
             if (!File.Exists(download.FilePath))

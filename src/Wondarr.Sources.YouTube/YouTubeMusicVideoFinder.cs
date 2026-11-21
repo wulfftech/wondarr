@@ -13,9 +13,9 @@ namespace Wondarr.Sources.YouTube;
 /// <item>MusicBrainz: the song's recording has a forward <c>music video</c> relation to a video recording, and that
 /// recording links a YouTube watch page. Such a video is confident.</item>
 /// <item>A YouTube Music video search for "artist title". A result is confident only when it is an official video,
-/// one of its artists is one of the song's artists as a whole name, and its title, with the video decorations
-/// stripped, is the song's at or above the decision engine's title floor. Everything else is listed for a person to
-/// pick.</item>
+/// one of its credited artists is one of the song's artists as a whole name (an artist only named in the title earns
+/// ranking points, not confidence), and its title, with the video decorations stripped, is the song's at or above the decision engine's title floor.
+/// Everything else, a user upload included, is listed for a person to pick.</item>
 /// </list>
 /// The audio recording's own YouTube links are never candidates: they are usually the Art Track. Candidates are
 /// ranked MusicBrainz first, then confident search results, then the rest, deduplicated by video id, and a
@@ -32,6 +32,9 @@ public sealed partial class YouTubeMusicVideoFinder : IMusicVideoFinder
     private const int TitleWeight = 300;
     private const int LengthWeight = 100;
     private const int ArtTrackPenalty = 200;
+
+    /// <summary>Taken off a user upload that says it is a live, remix, cover, vocals-only or similar version.</summary>
+    private const int OtherVersionPenalty = 150;
 
     /// <summary>How many seconds of difference in length cost one point of the length weight.</summary>
     private const int PointsPerLengthSecond = 2;
@@ -165,7 +168,8 @@ public sealed partial class YouTubeMusicVideoFinder : IMusicVideoFinder
                     MusicVideoCandidate.ThumbnailFor(videoId),
                     Confident: true,
                     MusicVideoFoundBy.MusicBrainz,
-                    Score: MusicBrainzTier + LengthPoints(query.DurationMs, target.LengthMs)));
+                    Score: MusicBrainzTier + LengthPoints(query.DurationMs, target.LengthMs),
+                    ArtistNamed: true));
             }
         }
 
@@ -196,16 +200,22 @@ public sealed partial class YouTubeMusicVideoFinder : IMusicVideoFinder
                 _ => MusicVideoCandidateKind.UserUpload,
             };
 
-            var artistNamed = result.Artists.Any(artist => ArtistEvidence.NamesAnyOf(artist, query.Artists));
-            var titleSimilarity = MusicVideoTitleMatcher.Similarity(query.Title, result.Title);
-            var titled = MusicVideoTitleMatcher.IsTitledAsTheSong(query.Title, result.Title);
-            var confident = kind == MusicVideoCandidateKind.OfficialVideo && artistNamed && titled;
+            // A user upload's artist is the uploader's channel, so the artist is also looked for in the video's own
+            // title ("Artist - Title", "Title - Artist", Artist "Title"); the title is then judged without it.
+            var evaluation = MusicVideoTitleMatcher.Evaluate(query.Title, query.Artists, result.Title);
+            var credited = result.Artists.Any(artist => ArtistEvidence.NamesAnyOf(artist, query.Artists));
+            var artistNamed = evaluation.ArtistInTitle || credited;
+
+            // Confidence is ADR-0014's: an official video credited to the song's artist (its channel), titled as the
+            // song. The artist in the title only earns ranking points; a user upload is never confident.
+            var confident = kind == MusicVideoCandidateKind.OfficialVideo && credited && evaluation.IsTitledAsTheSong;
 
             var score = (confident ? ConfidentSearchTier : 0)
                 + (kind == MusicVideoCandidateKind.OfficialVideo ? OfficialVideoWeight : 0)
                 - (kind == MusicVideoCandidateKind.ArtTrack ? ArtTrackPenalty : 0)
+                - (kind != MusicVideoCandidateKind.OfficialVideo && evaluation.IsOtherVersion ? OtherVersionPenalty : 0)
                 + (artistNamed ? ArtistWeight : 0)
-                + (int)Math.Round(titleSimilarity * TitleWeight)
+                + (int)Math.Round(evaluation.TitleSimilarity * TitleWeight)
                 + LengthPoints(query.DurationMs, result.DurationMs);
 
             found.Add(new MusicVideoCandidate(
@@ -217,7 +227,8 @@ public sealed partial class YouTubeMusicVideoFinder : IMusicVideoFinder
                 MusicVideoCandidate.ThumbnailFor(videoId),
                 confident,
                 MusicVideoFoundBy.YouTubeSearch,
-                score));
+                score,
+                artistNamed));
         }
 
         return found;

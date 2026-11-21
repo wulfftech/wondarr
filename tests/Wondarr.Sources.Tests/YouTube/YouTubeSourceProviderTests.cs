@@ -366,7 +366,8 @@ internal sealed class StubYtDlpRunner : IYtDlpRunner
         string videoId,
         string destinationDir,
         int? maxHeight,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        Func<Task>? started = null) =>
         throw new NotSupportedException("The provider never downloads a music video.");
 
     public Task<YtDlpFormats> ProbeFormatsAsync(string videoId, CancellationToken cancellationToken) =>
