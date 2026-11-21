@@ -1,3 +1,4 @@
+import { notifications } from '@mantine/notifications';
 import {
   useMutation,
   useQuery,
@@ -367,7 +368,24 @@ export function useResolveMatch(): UseMutationResult<MatchResolveResource, Error
 
       return data;
     },
-    onSuccess: () => invalidateReferences(queryClient),
+    // The toasts live here, not in the caller: a per-call callback is dropped when the caller re-renders mid-request.
+    onSuccess: (result) => {
+      notifyReplacement(result);
+      invalidateReferences(queryClient);
+    },
+    onError: (error: Error) => notifications.show({ message: error.message, color: 'red' }),
+  });
+}
+
+/** Tells the user what Replace did: a search for a better copy, or why there is none. */
+function notifyReplacement(result: MatchResolveResource): void {
+  if (result.replacement === null || result.replacement === '') {
+    return;
+  }
+
+  notifications.show({
+    message: result.replacement,
+    color: result.replacement.startsWith('Searching') ? 'green' : 'yellow',
   });
 }
 
@@ -388,7 +406,27 @@ export function useBulkAcceptMatches(): UseMutationResult<MatchBulkResource, Err
 
       return data;
     },
-    onSuccess: () => invalidateReferences(queryClient),
+    onSuccess: (result, { replace }) => {
+      const searching = Number(result.searching);
+      const lines = [
+        ...(result.errors.length === 0 ? ['Every selected file was accepted.'] : result.errors),
+        ...(replace
+          ? [
+              searching === 0
+                ? 'No song is below its cutoff, so nothing is searched for.'
+                : `Searching for better copies of ${searching} ${searching === 1 ? 'song' : 'songs'} now.`,
+            ]
+          : []),
+      ];
+
+      notifications.show({
+        title: `Resolved ${result.resolved}, failed ${result.failed}`,
+        message: lines.join('\n'),
+        color: result.failed === 0 ? 'green' : 'orange',
+      });
+      invalidateReferences(queryClient);
+    },
+    onError: (error: Error) => notifications.show({ message: error.message, color: 'red' }),
   });
 }
 

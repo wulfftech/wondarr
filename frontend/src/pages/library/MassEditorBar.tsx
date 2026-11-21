@@ -1,5 +1,4 @@
 import { Alert, Button, Group, Modal, Paper, Radio, Select, Stack, TagsInput, Text } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { CircleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { useBulkSearchMusicVideos } from '../../api/musicVideos';
@@ -289,16 +288,8 @@ export function MassEditorBar({
                 variant="default"
                 size="xs"
                 loading={findVideos.isPending}
-                onClick={() =>
-                  findVideos.mutate(selectedIds, {
-                    onSuccess: (queued) =>
-                      notifications.show({
-                        message: `Queued a music video search for ${songs(queued)}`,
-                        color: 'blue',
-                      }),
-                    onError: (error: Error) => notifications.show({ message: error.message, color: 'red' }),
-                  })
-                }
+                // The toasts belong to the hook, so they survive this bar re-rendering while the request runs.
+                onClick={() => findVideos.mutate(selectedIds)}
               >
                 Find music videos
               </Button>

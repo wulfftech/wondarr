@@ -14,7 +14,6 @@ import {
   Text,
   TextInput,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { CircleAlert, Video } from 'lucide-react';
 import { useState } from 'react';
 import {
@@ -371,32 +370,6 @@ function FileCard({
   );
 }
 
-/** What a bulk call did, in a sentence a person can check against what they selected. */
-function bulkMessage(
-  action: MusicVideoBulkAction,
-  adopted: number,
-  ignored: number,
-  skipped: number,
-): {
-  title: string;
-  message: string;
-} {
-  if (action === 'ignore') {
-    return {
-      title: `Ignored ${ignored}`,
-      message: skipped === 0 ? 'Those files are not offered again.' : `${skipped} could not be ignored.`,
-    };
-  }
-
-  return {
-    title: `Matched ${adopted}, skipped ${skipped}`,
-    message:
-      skipped === 0
-        ? 'Every selected file was linked to its song.'
-        : 'A file is only taken when its top match scores 95% or more and leads the next by over 5 points, and its song has no video. The rest still need a pick.',
-  };
-}
-
 /** The Music videos tab: filter, settle one file at a time or many at once, or scan again. */
 export function MusicVideoMatchTab() {
   const [state, setState] = useState<MusicVideoMatchState>('ambiguous');
@@ -437,22 +410,24 @@ export function MusicVideoMatchTab() {
 
   const settle = (id: number, input: Parameters<typeof resolve.mutate>[0], done: string) => {
     setWorkingId(id);
-    resolve.mutate(input, {
-      onSuccess: () => {
-        notifications.show({ message: done, color: 'green' });
-        setSearching(null);
-        setConfirming(null);
-        setSelected((current) => {
-          const next = new Set(current);
+    // The toasts (done, or why it failed) belong to the hook; this only moves the tab on.
+    resolve.mutate(
+      { ...input, doneMessage: done },
+      {
+        onSuccess: () => {
+          setSearching(null);
+          setConfirming(null);
+          setSelected((current) => {
+            const next = new Set(current);
 
-          next.delete(id);
+            next.delete(id);
 
-          return next;
-        });
+            return next;
+          });
+        },
+        onSettled: () => setWorkingId(null),
       },
-      onError: (error) => notifications.show({ message: error.message, color: 'red' }),
-      onSettled: () => setWorkingId(null),
-    });
+    );
   };
 
   /** A song that already has a video is replaced only after the person has said so. */
@@ -470,22 +445,11 @@ export function MusicVideoMatchTab() {
     bulk.mutate(
       { ids: [...selected], action },
       {
-        onSuccess: (result) => {
-          setSelected(new Set());
-
-          const shown = bulkMessage(action, Number(result.adopted), Number(result.ignored), Number(result.skipped));
-
-          notifications.show({ ...shown, color: Number(result.skipped) === 0 ? 'green' : 'orange' });
-        },
-        onError: (error) => notifications.show({ message: error.message, color: 'red' }),
+        onSuccess: () => setSelected(new Set()),
       },
     );
 
-  const startScan = () =>
-    scan.mutate(undefined, {
-      onSuccess: () => notifications.show({ message: 'Scanning the video folder', color: 'blue' }),
-      onError: (error) => notifications.show({ message: error.message, color: 'red' }),
-    });
+  const startScan = () => scan.mutate();
 
   return (
     <Stack gap="md">

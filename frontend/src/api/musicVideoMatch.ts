@@ -1,3 +1,4 @@
+import { notifications } from '@mantine/notifications';
 import {
   useMutation,
   useQuery,
@@ -114,9 +115,43 @@ function settled(queryClient: ReturnType<typeof useQueryClient>): void {
   invalidateLibrary(queryClient);
 }
 
-/** What one file is settled as. */
-export type MusicVideoMatchResolveInput =
-  { id: number; songId: number; replace?: boolean } | { id: number; ignore: true } | { id: number; unignore: true };
+/**
+ * What one file is settled as. `doneMessage` is what the toast says when it worked: the feedback lives in the hook, so it
+ * is still shown when the tab re-renders while the request runs.
+ */
+export type MusicVideoMatchResolveInput = (
+  { id: number; songId: number; replace?: boolean } | { id: number; ignore: true } | { id: number; unignore: true }
+) & { doneMessage?: string };
+
+const failed = (error: Error): void => {
+  notifications.show({ message: error.message, color: 'red' });
+};
+
+/** What a bulk call did, in a sentence a person can check against what they selected. */
+export function bulkMessage(
+  action: MusicVideoBulkAction,
+  adopted: number,
+  ignored: number,
+  skipped: number,
+): {
+  title: string;
+  message: string;
+} {
+  if (action === 'ignore') {
+    return {
+      title: `Ignored ${ignored}`,
+      message: skipped === 0 ? 'Those files are not offered again.' : `${skipped} could not be ignored.`,
+    };
+  }
+
+  return {
+    title: `Matched ${adopted}, skipped ${skipped}`,
+    message:
+      skipped === 0
+        ? 'Every selected file was linked to its song.'
+        : 'A file is only taken when its top match scores 95% or more and leads the next by over 5 points, and its song has no video. The rest still need a pick.',
+  };
+}
 
 /** Links a file to a song, ignores it, or puts an ignored file back. The file is never moved or renamed. */
 export function useResolveMusicVideoMatch(): UseMutationResult<
@@ -147,7 +182,14 @@ export function useResolveMusicVideoMatch(): UseMutationResult<
 
       return data;
     },
-    onSuccess: () => settled(queryClient),
+    onSuccess: (_result, input) => {
+      if (input.doneMessage !== undefined) {
+        notifications.show({ message: input.doneMessage, color: 'green' });
+      }
+
+      settled(queryClient);
+    },
+    onError: failed,
   });
 }
 
@@ -172,7 +214,13 @@ export function useBulkMusicVideoMatch(): UseMutationResult<
 
       return data;
     },
-    onSuccess: () => settled(queryClient),
+    onSuccess: (result, { action }) => {
+      const shown = bulkMessage(action, Number(result.adopted), Number(result.ignored), Number(result.skipped));
+
+      notifications.show({ ...shown, color: Number(result.skipped) === 0 ? 'green' : 'orange' });
+      settled(queryClient);
+    },
+    onError: failed,
   });
 }
 
@@ -189,6 +237,10 @@ export function useScanMusicVideos(): UseMutationResult<void, Error, void> {
         throw problemError(response.status, error, 'The scan could not be started.');
       }
     },
-    onSuccess: () => settled(queryClient),
+    onSuccess: () => {
+      notifications.show({ message: 'Scanning the video folder', color: 'blue' });
+      settled(queryClient);
+    },
+    onError: failed,
   });
 }

@@ -14,7 +14,6 @@ import {
   Title,
   Tooltip,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useQueryClient } from '@tanstack/react-query';
 import { CircleAlert } from 'lucide-react';
 import type { MantineColor } from '@mantine/core';
@@ -34,7 +33,6 @@ import {
   type MatchCandidateResource,
   type MatchQueueItemResource,
   type MatchResolveInput,
-  type MatchResolveResource,
 } from '../api/references';
 import { AddToMusicBrainz, MusicBrainzReturnNotice } from '../components/AddToMusicBrainz';
 import {
@@ -174,18 +172,6 @@ function RipBadge() {
   );
 }
 
-/** Tells the user what Replace did: a search for a better copy, or why there is none. */
-function notifyReplacement(result: MatchResolveResource) {
-  if (result.replacement === null || result.replacement === '') {
-    return;
-  }
-
-  notifications.show({
-    message: result.replacement,
-    color: result.replacement.startsWith('Searching') ? 'green' : 'yellow',
-  });
-}
-
 /** The state as a badge. */
 function StateBadge({ state }: { state: string }) {
   return (
@@ -234,13 +220,8 @@ function ReviewDrawer({
   const [results, setResults] = useState<SongLookupResource[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const settle = (input: MatchResolveInput) =>
-    resolve.mutate(input, {
-      onSuccess: (result) => {
-        notifyReplacement(result);
-        onClose();
-      },
-    });
+  // What Replace did is toasted by the hook; the drawer only closes.
+  const settle = (input: MatchResolveInput) => resolve.mutate(input, { onSuccess: onClose });
 
   const search = () =>
     lookup.mutate(term, {
@@ -511,43 +492,11 @@ function MusicMatchTab() {
       return;
     }
 
-    resolve.mutate(
-      { id: Number(item.id), candidateRank: Number(candidate.rank), replace },
-      {
-        onSuccess: notifyReplacement,
-        onError: (error) => notifications.show({ message: error.message, color: 'red' }),
-      },
-    );
+    resolve.mutate({ id: Number(item.id), candidateRank: Number(candidate.rank), replace });
   };
 
   const acceptSelected = (replace: boolean) =>
-    bulk.mutate(
-      { ids: [...selected], replace },
-      {
-        onSuccess: (result) => {
-          setSelected(new Set());
-
-          const searching = Number(result.searching);
-          const lines = [
-            ...(result.errors.length === 0 ? ['Every selected file was accepted.'] : result.errors),
-            ...(replace
-              ? [
-                  searching === 0
-                    ? 'No song is below its cutoff, so nothing is searched for.'
-                    : `Searching for better copies of ${searching} ${searching === 1 ? 'song' : 'songs'} now.`,
-                ]
-              : []),
-          ];
-
-          notifications.show({
-            title: `Resolved ${result.resolved}, failed ${result.failed}`,
-            message: lines.join('\n'),
-            color: result.failed === 0 ? 'green' : 'orange',
-          });
-        },
-        onError: (error) => notifications.show({ message: error.message, color: 'red' }),
-      },
-    );
+    bulk.mutate({ ids: [...selected], replace }, { onSuccess: () => setSelected(new Set()) });
 
   const columns: PagedColumn<MatchQueueItemResource>[] = [
     {

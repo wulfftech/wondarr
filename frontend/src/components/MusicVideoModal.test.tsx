@@ -85,6 +85,8 @@ interface Routes {
   video?: unknown;
   search?: unknown;
   grabStatus?: string;
+  /** How many other downloads are ahead of a grab; left out of the answer when undefined, as an older server does. */
+  aheadInQueue?: number;
 }
 
 /** Renders the cell with the providers `App` builds, over a route table for the music video API. */
@@ -103,7 +105,14 @@ function renderCell(musicVideo: RowVideo, routes: Routes = {}) {
     }
 
     if (url.endsWith('/musicvideo/song/12/grab')) {
-      return jsonResponse({ commandId: 77, status: routes.grabStatus ?? 'queued' }, 202);
+      return jsonResponse(
+        {
+          commandId: 77,
+          status: routes.grabStatus ?? 'queued',
+          ...(routes.aheadInQueue === undefined ? {} : { aheadInQueue: routes.aheadInQueue }),
+        },
+        202,
+      );
     }
 
     if (url.endsWith('/musicvideo/song/12/replace-failure') && method === 'DELETE') {
@@ -920,5 +929,210 @@ describe('Download again', () => {
     expect(await screen.findByRole('button', { name: 'Find a better one' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Download again' })).not.toBeInTheDocument();
     expect(screen.queryByText(/better copy of this video/)).not.toBeInTheDocument();
+  });
+});
+
+describe('a replacement in progress (M-70)', () => {
+  const LOW = { ...PRESENT_VIDEO, width: 640, height: 360, videoTitle: 'Queen - Fat Bottomed Girls (Official Video)' };
+  const PENDING = {
+    youTubeVideoId: 'AAAAAAAAAAA',
+    videoTitle: 'Queen - Fat Bottomed Girls (Live)',
+    status: 'queued',
+  };
+
+  it('says what the filed video is being replaced with, and that it waits for another download', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 360, failureReason: null },
+      { video: { ...LOW, pendingReplacement: PENDING } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByText('Replacing with «Queen - Fat Bottomed Girls (Live)»')).toBeInTheDocument();
+    expect(screen.getByText('Waiting for another download to finish')).toBeInTheDocument();
+  });
+
+  it('does not say it waits once the download is running', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 360, failureReason: null },
+      { video: { ...LOW, pendingReplacement: { ...PENDING, status: 'downloading' } } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByText('Replacing with «Queen - Fat Bottomed Girls (Live)»')).toBeInTheDocument();
+    expect(screen.queryByText('Waiting for another download to finish')).not.toBeInTheDocument();
+  });
+
+  it('disables Find a better one, Download again and Remove while it is pending', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 360, failureReason: null },
+      { video: { ...LOW, pendingReplacement: PENDING } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+    await screen.findByText('Replacing with «Queen - Fat Bottomed Girls (Live)»');
+
+    expect(screen.getByRole('button', { name: 'Find a better one' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Download again' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeDisabled();
+  });
+
+  it('shows no replacement and enables the buttons when none is pending', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 360, failureReason: null },
+      { video: { ...LOW, pendingReplacement: null } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByRole('button', { name: 'Download again' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeEnabled();
+    expect(screen.queryByText(/Replacing with/)).not.toBeInTheDocument();
+  });
+
+  it('keeps asking while a replacement is pending, with no client-side bookkeeping', async () => {
+    const user = userEvent.setup();
+    let reads = 0;
+
+    installFetch((url, init) => {
+      const method = init?.method ?? 'GET';
+
+      if (/\/musicvideo\/song\/12$/.test(url) && method === 'GET') {
+        reads += 1;
+
+        return jsonResponse(
+          reads === 1 ? { ...LOW, pendingReplacement: PENDING } : { ...LOW, pendingReplacement: null },
+        );
+      }
+
+      return new Response('not found', { status: 404 });
+    });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <MantineProvider env="test">
+        <Notifications />
+        <ApiProvider config={createTestConfig()}>
+          <QueryClientProvider client={queryClient}>
+            <MusicVideoCell song={song({ status: 'present', height: 360, failureReason: null })} />
+          </QueryClientProvider>
+        </ApiProvider>
+      </MantineProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+    await screen.findByText('Replacing with «Queen - Fat Bottomed Girls (Live)»');
+
+    await waitFor(() => expect(screen.queryByText(/Replacing with/)).not.toBeInTheDocument(), { timeout: 6000 });
+    expect(reads).toBeGreaterThan(1);
+  }, 10000);
+});
+
+describe('when YouTube has nothing better (M-70)', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const LOW = { ...PRESENT_VIDEO, width: 640, height: 360 };
+  const checked = (daysAgo: number) => new Date(Date.now() - daysAgo * DAY).toISOString();
+
+  it('hides Download again and says what the best copy is, while the check is fresh', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 360, failureReason: null },
+      { video: { ...LOW, bestAvailableHeight: 360, bestAvailableCheckedAt: checked(2) } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByText(/YouTube's best copy is 360p \(checked /)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Download again' })).not.toBeInTheDocument();
+    expect(screen.queryByText('YouTube may have a better copy of this video now.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Find a better one' })).toBeInTheDocument();
+  });
+
+  it('shows Download again again 30 days after the check', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 360, failureReason: null },
+      { video: { ...LOW, bestAvailableHeight: 360, bestAvailableCheckedAt: checked(31) } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByRole('button', { name: 'Download again' })).toBeInTheDocument();
+    expect(screen.getByText('YouTube may have a better copy of this video now.')).toBeInTheDocument();
+    expect(screen.queryByText(/YouTube's best copy is/)).not.toBeInTheDocument();
+  });
+
+  it('keeps Download again when the check found a taller copy', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 360, failureReason: null },
+      { video: { ...LOW, bestAvailableHeight: 1080, bestAvailableCheckedAt: checked(1) } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByRole('button', { name: 'Download again' })).toBeInTheDocument();
+  });
+});
+
+describe('the toast of a pick says whether it starts at once (M-70)', () => {
+  it('says Downloading when nothing is ahead of it, even though the row is queued', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 360, failureReason: null },
+      {
+        video: { ...PRESENT_VIDEO, width: 640, height: 360, videoTitle: 'Into the Unknown' },
+        grabStatus: 'queued',
+        aheadInQueue: 0,
+      },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+    await user.click(await screen.findByRole('button', { name: 'Download again' }));
+
+    expect(await screen.findByText('Downloading «Into the Unknown»')).toBeInTheDocument();
+  });
+
+  it('says how many downloads it waits behind', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 360, failureReason: null },
+      {
+        video: { ...PRESENT_VIDEO, width: 640, height: 360, videoTitle: 'Into the Unknown' },
+        aheadInQueue: 2,
+      },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+    await user.click(await screen.findByRole('button', { name: 'Download again' }));
+
+    expect(await screen.findByText('Queued «Into the Unknown» behind 2 other downloads')).toBeInTheDocument();
+  });
+
+  it('says so in the search toast of a confident match too', async () => {
+    const user = userEvent.setup();
+
+    renderCell(null, {
+      search: { queued: true, partial: false, status: 'queued', aheadInQueue: 1, candidates: CANDIDATES },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+
+    expect(await screen.findByText('Queued «Get Lucky (Official Video)» behind 1 other download')).toBeInTheDocument();
   });
 });

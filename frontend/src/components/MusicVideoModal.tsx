@@ -13,13 +13,13 @@ import {
   Stack,
   Text,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { CircleAlert, ExternalLink, Video } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  downloadMessage,
+  hasPendingReplacement,
   isVideoBusy,
   LOW_QUALITY_HEIGHT,
+  nothingBetterOnYouTube,
   useDeleteMusicVideo,
   useDismissReplaceFailure,
   useGrabMusicVideo,
@@ -32,7 +32,7 @@ import {
 } from '../api/musicVideos';
 import { Fact, FactGrid } from '../pages/song/Facts';
 import { EmptyState, ErrorState, LoadingState } from './DataState';
-import { formatDuration } from './SongCells';
+import { formatDate, formatDuration } from './SongCells';
 import { formatBytes } from './song/format';
 
 /** A song's music video: the candidates to pick from, and the view of the one it has. */
@@ -240,17 +240,7 @@ function FailedView({
           size="xs"
           loading={remove.isPending}
           // The file never landed, so there is nothing to lose and nothing to blocklist.
-          onClick={() =>
-            remove.mutate(
-              { songId: Number(video.songId), blocklist: false },
-              {
-                onSuccess: () => {
-                  notifications.show({ message: 'Removed the music video', color: 'green' });
-                  onRemoved();
-                },
-              },
-            )
-          }
+          onClick={() => remove.mutate({ songId: Number(video.songId), blocklist: false }, { onSuccess: onRemoved })}
         >
           Remove
         </Button>
@@ -286,24 +276,22 @@ function ManageView({
   const lowQuality = video.height !== null && Number(video.height) < LOW_QUALITY_HEIGHT;
   const replaceFailure = typeof video.replaceFailureReason === 'string' ? video.replaceFailureReason : null;
   const videoId = video.youTubeVideoId;
+  const pending = video.pendingReplacement ?? null;
+  const replacing = hasPendingReplacement(video);
+  // The last check found nothing better than this copy, recently: asking again would download the same file.
+  const nothingBetter = nothingBetterOnYouTube(video);
 
+  // The toast (queued, or why it was refused) belongs to the hook, which outlives this view.
   const downloadAgain = () => {
     if (videoId === null) {
       return;
     }
 
-    grab.mutate(
-      {
-        songId: Number(video.songId),
-        videoId,
-        ...(video.videoTitle === null ? {} : { videoTitle: video.videoTitle }),
-      },
-      {
-        onSuccess: (status) =>
-          notifications.show({ message: downloadMessage(video.videoTitle, status), color: 'blue' }),
-        onError: (error: Error) => notifications.show({ message: error.message, color: 'red' }),
-      },
-    );
+    grab.mutate({
+      songId: Number(video.songId),
+      videoId,
+      ...(video.videoTitle === null ? {} : { videoTitle: video.videoTitle }),
+    });
   };
 
   return (
@@ -323,6 +311,19 @@ function ManageView({
               Dismiss
             </Button>
           </Group>
+        </Alert>
+      )}
+
+      {pending !== null && (
+        <Alert color="blue" icon={<Loader size={16} />}>
+          <Stack gap={2}>
+            <Text size="sm" fw={600} style={{ overflowWrap: 'anywhere' }}>
+              {pending.videoTitle === null || pending.videoTitle === ''
+                ? 'Replacing with another video'
+                : `Replacing with «${pending.videoTitle}»`}
+            </Text>
+            {pending.status === 'queued' && <Text size="sm">Waiting for another download to finish</Text>}
+          </Stack>
         </Alert>
       )}
 
@@ -385,12 +386,7 @@ function ManageView({
               onClick={() =>
                 remove.mutate(
                   { songId: Number(video.songId), blocklist: blocklist && !found },
-                  {
-                    onSuccess: () => {
-                      notifications.show({ message: 'Removed the music video', color: 'green' });
-                      onRemoved();
-                    },
-                  },
+                  { onSuccess: onRemoved },
                 )
               }
             >
@@ -401,15 +397,15 @@ function ManageView({
       ) : (
         <Group gap="xs">
           {/* Replace…, said for a video that is worth replacing. */}
-          <Button variant={lowQuality ? 'filled' : 'default'} size="xs" onClick={onReplace}>
+          <Button variant={lowQuality ? 'filled' : 'default'} size="xs" disabled={replacing} onClick={onReplace}>
             {lowQuality ? 'Find a better one' : 'Replace…'}
           </Button>
-          {lowQuality && videoId !== null && (
-            <Button variant="default" size="xs" loading={grab.isPending} onClick={downloadAgain}>
+          {lowQuality && videoId !== null && !nothingBetter && (
+            <Button variant="default" size="xs" disabled={replacing} loading={grab.isPending} onClick={downloadAgain}>
               Download again
             </Button>
           )}
-          <Button color="red" variant="light" size="xs" onClick={() => setConfirming(true)}>
+          <Button color="red" variant="light" size="xs" disabled={replacing} onClick={() => setConfirming(true)}>
             Remove
           </Button>
         </Group>
@@ -421,9 +417,15 @@ function ManageView({
         </Text>
       )}
 
-      {!confirming && lowQuality && videoId !== null && (
+      {!confirming && lowQuality && videoId !== null && !nothingBetter && (
         <Text size="xs" c="dimmed">
           YouTube may have a better copy of this video now.
+        </Text>
+      )}
+
+      {!confirming && lowQuality && videoId !== null && nothingBetter && (
+        <Text size="xs" c="dimmed">
+          {`YouTube's best copy is ${String(video.bestAvailableHeight)}p (checked ${formatDate(video.bestAvailableCheckedAt)}).`}
         </Text>
       )}
     </Stack>
@@ -474,18 +476,12 @@ export function MusicVideoPanel({
     setCandidates(null);
     setPartial(false);
     setShown(FIRST_CANDIDATES);
+    // The toast for a queued download belongs to the hook; this only moves the panel on.
     search.mutate(
       { songId, autoDownload },
       {
         onSuccess: (result) => {
           if (result.queued) {
-            notifications.show({
-              message: downloadMessage(
-                result.candidates.find((candidate) => candidate.confident)?.title,
-                result.status,
-              ),
-              color: 'blue',
-            });
             setPicking(false);
 
             return;
@@ -512,12 +508,10 @@ export function MusicVideoPanel({
     grab.mutate(
       { songId, videoId: candidate.videoId, videoTitle: candidate.title },
       {
-        onSuccess: (status) => {
-          notifications.show({ message: downloadMessage(candidate.title, status), color: 'blue' });
+        onSuccess: () => {
           setPicking(false);
           setCandidates(null);
         },
-        onError: (error: Error) => notifications.show({ message: error.message, color: 'red' }),
         onSettled: () => setGrabbing(null),
       },
     );
