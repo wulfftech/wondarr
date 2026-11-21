@@ -277,6 +277,50 @@ public sealed class YouTubeMusicVideoFinderTests
     }
 
     [Fact]
+    public async Task A_soundtrack_note_does_not_stop_the_official_video_being_confident_and_first()
+    {
+        var musicBrainz = Substitute.For<IMusicBrainzClient>();
+        var innertube = new StubInnertubeClient().Respond(
+            InnertubeSearchFilter.Videos,
+            Search(
+                Result("w90WSa5ssU0", "Can't Stop the Feeling! - Justin Timberlake (852 hz)", ["Joseph's Frequencies Pitched"], InnertubeVideoTypes.UserUpload, durationMs: 236_000),
+                Result("LLLLLLLLLL1", "Justin Timberlake - CAN'T STOP THE FEELING! (Lyric Video)", ["Fan One"], InnertubeVideoTypes.UserUpload, durationMs: 236_000),
+                Result("ru0K8uYEZWw", "CAN'T STOP THE FEELING!", ["Justin Timberlake"], InnertubeVideoTypes.OfficialVideo, durationMs: 237_000)));
+        var query = new MusicVideoQuery("CAN'T STOP THE FEELING!", ["Justin Timberlake"], null, 236_000, NoBlocklist);
+        var oEmbed = new StubOEmbedClient(videoId => videoId switch
+        {
+            "ru0K8uYEZWw" => new YouTubeOEmbed("Justin Timberlake - CAN'T STOP THE FEELING! (from DreamWorks Animation's \"TROLLS\") (Official Video)", "justintimberlakeVEVO", null),
+            "w90WSa5ssU0" => new YouTubeOEmbed("Can't Stop the Feeling! - Justin Timberlake (852 hz)", "Joseph's Frequencies Pitched", null),
+            _ => null,
+        });
+
+        var candidates = await Finder(musicBrainz, innertube, oEmbed).FindAsync(query, CancellationToken.None);
+
+        candidates[0].VideoId.Should().Be("ru0K8uYEZWw");
+        candidates[0].Confident.Should().BeTrue();
+        candidates[0].TitledAsSong.Should().BeTrue();
+        candidates.Single(candidate => candidate.VideoId == "w90WSa5ssU0").TitledAsSong.Should().BeFalse();
+        candidates.Where(candidate => candidate.Confident).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_festival_upload_ranks_below_the_plain_titled_upload()
+    {
+        var musicBrainz = Substitute.For<IMusicBrainzClient>();
+        var innertube = new StubInnertubeClient().Respond(
+            InnertubeSearchFilter.Videos,
+            Search(
+                Result("BBBBBBBBBBB", "Paramore - When It Rains - (iTunes Festivel 2013)- [HD]", ["Fan One"], InnertubeVideoTypes.UserUpload, durationMs: 245_000),
+                Result("AAAAAAAAAAA", "Paramore - When it Rains", ["Fan Two"], InnertubeVideoTypes.UserUpload, durationMs: 245_000)));
+        var query = new MusicVideoQuery("When It Rains", ["Paramore"], null, 245_000, NoBlocklist);
+
+        var candidates = await Finder(musicBrainz, innertube, new StubOEmbedClient(_ => null)).FindAsync(query, CancellationToken.None);
+
+        candidates[0].VideoId.Should().Be("AAAAAAAAAAA");
+        candidates.Single(candidate => candidate.VideoId == "BBBBBBBBBBB").TitledAsSong.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task An_official_video_of_a_live_remastered_version_is_not_confident()
     {
         var musicBrainz = Substitute.For<IMusicBrainzClient>();
