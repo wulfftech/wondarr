@@ -584,6 +584,54 @@ public sealed class MusicVideoTitleMatcherTests
         MusicVideoTitleMatcher.Evaluate(song, [artist], videoTitle).IsTitledAsTheSong.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("[LITHUANIAN HQ] | Moana (2026) - How Far I'll Go (Reprise)")]
+    [InlineData("Auli'i Cravalho - How Far I'll Go (Reprise) [Latvian]")]
+    [InlineData("Auli'i Cravalho - How Far I'll Go (Reprise) (Ukrainian)")]
+    [InlineData("Auli'i Cravalho - How Far I'll Go (Reprise) (Castilian)")]
+    [InlineData("Auli'i Cravalho - How Far I'll Go (Reprise) (Latino)")]
+    [InlineData("Auli'i Cravalho - How Far I'll Go (Reprise) (Québécois)")]
+    [InlineData("Auli'i Cravalho - How Far I'll Go (Reprise) (Canadian French)")]
+    [InlineData("Auli'i Cravalho - How Far I'll Go (Reprise) (European Spanish)")]
+    [InlineData("Auli'i Cravalho - How Far I'll Go (Reprise) - Māori")]
+    [InlineData("Auli'i Cravalho - How Far I'll Go (Reprise) - Hawaiian")]
+    [InlineData("Auli'i Cravalho - How Far I'll Go (Reprise) (Tamil)")]
+    [InlineData("Auli'i Cravalho - How Far I'll Go (Reprise) (Afrikaans)")]
+    [InlineData("Auli'i Cravalho - How Far I'll Go (Reprise) (Cymraeg)")]
+    public void More_languages_are_another_version(string videoTitle)
+    {
+        MusicVideoTitleMatcher.IsOtherVersion("How Far I'll Go (Reprise)", videoTitle, ["Auli'i Cravalho"]).Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate("How Far I'll Go (Reprise)", ["Auli'i Cravalho"], videoTitle).IsTitledAsTheSong.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_mashup_is_another_version_unless_the_songs_own_title_has_the_word()
+    {
+        const string Title = "Into the unknown - Idina Mezel and Panic! At the disco (mashup) From Frozen 2";
+
+        MusicVideoTitleMatcher.Evaluate("Into the Unknown (Panic! at the Disco version)", ["Panic! at the Disco"], Title).IsTitledAsTheSong.Should().BeFalse();
+        MusicVideoTitleMatcher.Evaluate("Into the Unknown (Panic! at the Disco version)", ["Panic! at the Disco"], Title).IsOtherVersion.Should().BeTrue();
+        MusicVideoTitleMatcher.IsOtherVersion("Song", "Artist - Song (Mash-up)", ["Artist"]).Should().BeTrue();
+        MusicVideoTitleMatcher.IsOtherVersion("Song", "Artist - Song (Megamix)", ["Artist"]).Should().BeTrue();
+        MusicVideoTitleMatcher.IsOtherVersion("Song", "Artist vs. Other - Song", ["Artist"]).Should().BeTrue();
+        MusicVideoTitleMatcher.IsOtherVersion("Song", "Artist - Song versus Other", ["Artist"]).Should().BeTrue();
+        MusicVideoTitleMatcher.IsOtherVersion("The Mashup", "Artist - The Mashup (Official Video)", ["Artist"]).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_dash_part_that_is_a_place_and_a_year_is_a_live_show_but_a_year_bracket_is_noise()
+    {
+        var evaluation = MusicVideoTitleMatcher.Evaluate("Father and Son", ["Cat Stevens"], "Cat Stevens - Father & Son - Marbella Starlite 2023");
+
+        evaluation.IsTitledAsTheSong.Should().BeFalse();
+        evaluation.IsOtherVersion.Should().BeTrue();
+        MusicVideoTitleMatcher.IsOtherVersion("Song", "Artist - Song - 2019", ["Artist"]).Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate("Breakfast at Sweethearts", ["Cold Chisel"], "Cold Chisel - Breakfast At Sweethearts (1979)").IsTitledAsTheSong.Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate("Creep", ["Radiohead"], "Radiohead - Creep 1992").IsTitledAsTheSong.Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate("Creep", ["Radiohead"], "Radiohead - Creep - Remastered 2011").IsTitledAsTheSong.Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate("Creep", ["Radiohead"], "Creep - Radiohead 1992").IsTitledAsTheSong.Should().BeTrue();
+    }
+
     [Fact]
     public void A_language_word_in_the_songs_title_or_the_artists_name_is_not_a_version()
     {

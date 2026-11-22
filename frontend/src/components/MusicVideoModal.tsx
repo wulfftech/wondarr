@@ -291,6 +291,8 @@ function ManageView({
     grab.mutate({
       songId: Number(video.songId),
       videoId,
+      // The song's own current video: the download only checks for a better copy, and may download nothing.
+      checkingBetterCopy: true,
       ...(video.videoTitle === null ? {} : { videoTitle: video.videoTitle }),
     });
   };
@@ -319,9 +321,11 @@ function ManageView({
         <Alert color="blue" icon={<Loader size={16} />}>
           <Stack gap={2}>
             <Text size="sm" fw={600} style={{ overflowWrap: 'anywhere' }}>
-              {pending.videoTitle === null || pending.videoTitle === ''
-                ? 'Replacing with another video'
-                : `Replacing with «${pending.videoTitle}»`}
+              {pending.youTubeVideoId === videoId
+                ? 'Checking YouTube for a better copy'
+                : pending.videoTitle === null || pending.videoTitle === ''
+                  ? 'Replacing with another video'
+                  : `Replacing with «${pending.videoTitle}»`}
             </Text>
             {pending.status === 'queued' && <Text size="sm">Waiting for another download to finish</Text>}
           </Stack>

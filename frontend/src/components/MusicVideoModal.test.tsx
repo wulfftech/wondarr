@@ -899,7 +899,10 @@ describe('Download again', () => {
       youTubeVideoId: 'h5EofwRzit0',
       videoTitle: 'Daft Punk - Get Lucky (Official Video)',
     });
-    expect(await screen.findByText('Queued «Daft Punk - Get Lucky (Official Video)»')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Checking YouTube for a better copy of «Daft Punk - Get Lucky (Official Video)»'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^Downloading «/)).not.toBeInTheDocument();
   });
 
   it('is not offered at 720p or above', async () => {
@@ -952,6 +955,25 @@ describe('a replacement in progress (M-70)', () => {
 
     expect(await screen.findByText('Replacing with «Queen - Fat Bottomed Girls (Live)»')).toBeInTheDocument();
     expect(screen.getByText('Waiting for another download to finish')).toBeInTheDocument();
+  });
+
+  it('says it is checking for a better copy when the pending download is the filed video itself', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 360, failureReason: null },
+      {
+        video: {
+          ...LOW,
+          pendingReplacement: { youTubeVideoId: 'h5EofwRzit0', videoTitle: LOW.videoTitle, status: 'downloading' },
+        },
+      },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByText('Checking YouTube for a better copy')).toBeInTheDocument();
+    expect(screen.queryByText(/Replacing with/)).not.toBeInTheDocument();
   });
 
   it('does not say it waits once the download is running', async () => {
@@ -1089,7 +1111,7 @@ describe('when YouTube has nothing better (M-70)', () => {
 });
 
 describe('the toast of a pick says whether it starts at once (M-70)', () => {
-  it('says Downloading when nothing is ahead of it, even though the row is queued', async () => {
+  it('says it is checking when nothing is ahead of it, even though the row is queued', async () => {
     const user = userEvent.setup();
 
     renderCell(
@@ -1104,7 +1126,7 @@ describe('the toast of a pick says whether it starts at once (M-70)', () => {
     await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
     await user.click(await screen.findByRole('button', { name: 'Download again' }));
 
-    expect(await screen.findByText('Downloading «Into the Unknown»')).toBeInTheDocument();
+    expect(await screen.findByText('Checking YouTube for a better copy of «Into the Unknown»')).toBeInTheDocument();
   });
 
   it('says how many downloads it waits behind', async () => {
@@ -1121,7 +1143,9 @@ describe('the toast of a pick says whether it starts at once (M-70)', () => {
     await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
     await user.click(await screen.findByRole('button', { name: 'Download again' }));
 
-    expect(await screen.findByText('Queued «Into the Unknown» behind 2 other downloads')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Queued the check for a better copy of «Into the Unknown» behind 2 other downloads'),
+    ).toBeInTheDocument();
   });
 
   it('says so in the search toast of a confident match too', async () => {

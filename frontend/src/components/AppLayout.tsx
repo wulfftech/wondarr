@@ -136,7 +136,9 @@ export function AppLayout() {
   const videoSummary = useMusicVideoMatchSummary(videosEnabled);
   // Unmatched videos are not in the library, so there is nothing to do for them: only the ambiguous ones count.
   const videoAmbiguous = videosEnabled ? Number(videoSummary.data?.ambiguous ?? 0) : 0;
-  const matchBadge = (matchTotal ?? 0) + videoAmbiguous;
+  // Until the summary loads the video count is unknown: no badge (not a partial count) rather than a number that jumps.
+  const videosLoading = videosEnabled && videoSummary.data === undefined && !videoSummary.isError;
+  const matchBadge = videosLoading ? 0 : (matchTotal ?? 0) + videoAmbiguous;
   const showDisconnected = useAfterGrace(!useEventStreamConnected(), DISCONNECTED_GRACE_MS);
   const { pathname } = useLocation();
   const [navOpened, { toggle: toggleNav, close: closeNav }] = useDisclosure(false);
