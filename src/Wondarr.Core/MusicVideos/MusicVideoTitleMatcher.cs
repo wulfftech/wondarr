@@ -65,7 +65,7 @@ public static class MusicVideoTitleMatcher
     /// which reads a named mix ("Rah Mix") as a remix and "Radio Mix" or "Original Mix" as neutral.
     /// </summary>
     private static readonly Regex OtherVersionWords = new(
-        @"\b(?:live|remix|cover(?:ed)?|reaction|reacts?|instrumental|karaoke|acoustic|acapella|a\s+cappella|vocals?\s+only|isolated\s+vocals?|demo|slowed|reverb|sped\s+up|nightcore|8d|bass\s+boosted|chipmunk|pitch(?:ed|\s+shifted)|\d+\s?hz|\d+\s+hours?|loop|festival|festivel|fest|concert|live\s+(?:at|from)|in\s+concert|unplugged|sessions?|bbc|mtv|reprise|(?:american\s+)?sign\s+language|asl|lower\s+key|higher\s+key|key\s+change|transposed|(?:fe)?male\s+version|choreography|dance\s+cover|dance\s+tutorial|tutorial|lessons?|so\s+you\s+think\s+you\s+can\s+dance)\b",
+        @"\b(?:live|remix|cover(?:ed)?|reaction|reacts?|instrumental|karaoke|acoustic|acapella|a\s+cappella|vocals?\s+only|isolated\s+vocals?|demo|slowed|reverb|sped\s+up|nightcore|8d|bass\s+boosted|chipmunk|pitch(?:ed|\s+shifted)|\d+\s?hz|\d+\s+hours?|loop|festival|festivel|fest|concert|live\s+(?:at|from)|in\s+concert|unplugged|sessions?|bbc|mtv|reprise|mash[\s-]?up|mega\s?mix|(?:american\s+)?sign\s+language|asl|lower\s+key|higher\s+key|key\s+change|transposed|(?:fe)?male\s+version|choreography|dance\s+cover|dance\s+tutorial|tutorial|lessons?|so\s+you\s+think\s+you\s+can\s+dance)\b",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
@@ -114,6 +114,18 @@ public static class MusicVideoTitleMatcher
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
+    /// <summary>"vs." or "versus" as a word.</summary>
+    private static readonly Regex VersusWord = new(
+        @"\b(?:vs|versus)\b",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>A trailing dash part that is a year alone or a few words ending in a year: <c>Marbella Starlite 2023</c>.</summary>
+    private static readonly Regex EventYearPart = new(
+        @"^(?:(?<name>\S+(?:\s+\S+){0,4})\s+)?(?<year>(?:19[5-9]|20\d)\d)$",
+        RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));
+
     /// <summary>A bare year in a bracket: <c>(1991)</c>.</summary>
     private static readonly Regex YearBracket = new(
         @"^(?:19|20)\d{2}$",
@@ -126,8 +138,8 @@ public static class MusicVideoTitleMatcher
     /// "Spanish version" hold the language name, so they match too.
     /// </summary>
     private static readonly Regex LanguageWords = new(
-        @"\b(?:english|spanish|espa[nñ]ol|castellano|portuguese|portugu[eê]s|brazilian|french|fran[cç]ais|german|deutsch|italian|italiano|persian|farsi|thai|japanese|korean|chinese|mandarin|cantonese|russian|polish|polski|dutch|nederlands|swedish|svenska|norwegian|norsk|danish|dansk|finnish|suomi|turkish|t[uü]rk[cç]e|arabic|hindi|indonesian|malay|vietnamese|hebrew|greek|latin|tagalog|filipino|subs?|subtitles?|subtitulad[oa]|legendad[oa])\b"
-        + @"|(?<![\p{L}\p{N}])(?:日本語|한국어|中文|русский|العربية|हिन्दी|עברית|ελληνικά|فارسی|ไทย)(?![\p{L}\p{N}])",
+        @"\b(?:english|spanish|espa[nñ]ol|castellano|portuguese|portugu[eê]s|brazilian|french|fran[cç]ais|german|deutsch|italian|italiano|persian|farsi|thai|japanese|korean|chinese|mandarin|cantonese|russian|polish|polski|dutch|nederlands|swedish|svenska|norwegian|norsk|danish|dansk|finnish|suomi|turkish|t[uü]rk[cç]e|arabic|hindi|indonesian|malay|vietnamese|hebrew|greek|latin|tagalog|filipino|lithuanian|lietuvi[ųu]|latvian|latvie[šs]u|estonian|eesti|ukrainian|czech|[čc]e[šs]tina|[čc]esky|slovak|slovensky|sloven[čc]ina|hungarian|magyar|romanian|rom[aâ]n[aă]|bulgarian|serbian|srpski|croatian|hrvatski|slovenian|slovene|sloven[šs][čc]ina|slovenski|icelandic|[ií]slenska|catalan|catal[aà]|basque|euskara|galician|galego|welsh|cymraeg|irish|gaeilge|bengali|bangla|tamil|telugu|urdu|swahili|kiswahili|afrikaans|zulu|isizulu|maori|m[aā]ori|hawaiian|samoan|gagana|tongan|castilian|latino|qu[eé]b[eé]cois|subs?|subtitles?|subtitulad[oa]|legendad[oa])\b"
+        + @"|(?<![\p{L}\p{N}])(?:日本語|한국어|中文|русский|العربية|हिन्दी|עברית|ελληνικά|فارسی|ไทย|українська|български|српски|বাংলা|தமிழ்|తెలుగు|اردو)(?![\p{L}\p{N}])",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
@@ -312,6 +324,62 @@ public static class MusicVideoTitleMatcher
         segments = [.. segments.Select(segment => FeaturingTail.Replace(segment, string.Empty))];
 
         return segments.Any(segment => LanguageWords.Matches(segment).Any(match => !inSong.Contains(match.Value.ToLowerInvariant())));
+    }
+
+    /// <summary>
+    /// Whether the title has "vs." or "versus" between two names (a mashup or a face-off), when neither the song's title nor
+    /// an artist's name carries the word.
+    /// </summary>
+    private static bool NamesVersus(string videoTitle, string songTitle, IReadOnlyList<string>? songArtists)
+    {
+        var title = Strip(videoTitle, songTitle).Title;
+        var versus = VersusWord.Match(title);
+
+        return versus.Success
+            && versus.Index > 0
+            && versus.Index + versus.Length < title.Length
+            && !VersusWord.IsMatch(songTitle)
+            && !(songArtists ?? []).Any(artist => VersusWord.IsMatch(artist));
+    }
+
+    /// <summary>
+    /// Whether a trailing dash part of the title is a year alone or a few words ending in a year ("Father &amp; Son - Marbella
+    /// Starlite 2023"): a live show or an event recording. The song's own title, an artist, a remaster note or an official-video
+    /// note with a year is not one; nor is a year in a bracket, which is noise.
+    /// </summary>
+    private static bool NamesEventYear(string videoTitle, string songTitle, IReadOnlyList<string>? songArtists)
+    {
+        var parts = TitleParts(Strip(videoTitle, songTitle).Title);
+
+        for (var index = 1; index < parts.Count; index++)
+        {
+            var match = EventYearPart.Match(parts[index]);
+
+            if (!match.Success || int.Parse(match.Groups["year"].Value, System.Globalization.CultureInfo.InvariantCulture) > DateTime.UtcNow.Year)
+            {
+                continue;
+            }
+
+            var name = match.Groups["name"].Value;
+
+            if (name.Length == 0)
+            {
+                return true;
+            }
+
+            if (NoiseBracket.IsMatch(parts[index])
+                || OfficialVideoBracket.IsMatch(parts[index])
+                || songTitle.Contains(name, StringComparison.OrdinalIgnoreCase)
+                || (songArtists is not null && ArtistEvidence.NamesAnyOf(name, songArtists))
+                || SongVariants(SearchTitle(songTitle)).Any(variant => StrictlyEqual(variant, name)))
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>Whether a bracket's content is only an edit or single-version marker, which a music video ignores.</summary>
@@ -617,7 +685,7 @@ public static class MusicVideoTitleMatcher
             : Strip(TitleAfterArtist(videoTitle, songArtists, songTitle) ?? videoTitle, songTitle).Title;
         var flags = VideoFlags(stripped, TitleParts(stripped));
 
-        if (NamesOtherLanguage(stripped, songTitle, songArtists))
+        if (NamesOtherLanguage(stripped, songTitle, songArtists) || NamesVersus(videoTitle, songTitle, songArtists) || NamesEventYear(videoTitle, songTitle, songArtists))
         {
             return true;
         }

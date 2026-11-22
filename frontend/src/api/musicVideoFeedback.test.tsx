@@ -187,6 +187,17 @@ describe('the toast for a queued download', () => {
     expect(downloadMessage(undefined, 'queued', 2)).toBe('Queued music video behind 2 other downloads');
   });
 
+  it('says it is checking for a better copy when the song re-grabs its own video', () => {
+    expect(downloadMessage('Bow River', 'queued', 0, true)).toBe('Checking YouTube for a better copy of «Bow River»');
+    expect(downloadMessage('Bow River', 'queued', undefined, true)).toBe(
+      'Checking YouTube for a better copy of «Bow River»',
+    );
+    expect(downloadMessage(null, 'queued', 0, true)).toBe('Checking YouTube for a better copy');
+    expect(downloadMessage('Bow River', 'queued', 2, true)).toBe(
+      'Queued the check for a better copy of «Bow River» behind 2 other downloads',
+    );
+  });
+
   it('falls back to the status when the server does not say', () => {
     expect(downloadMessage('Into the Unknown', 'queued')).toBe('Queued «Into the Unknown»');
     expect(downloadMessage('Into the Unknown', 'downloading')).toBe('Downloading «Into the Unknown»');

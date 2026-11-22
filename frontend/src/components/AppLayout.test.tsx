@@ -210,6 +210,40 @@ describe('AppLayout', () => {
       expect(await screen.findByLabelText('1 to review: 1 music video')).toHaveTextContent('1');
     });
 
+    it('shows no badge until the music video count has loaded, then the whole count', async () => {
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      const mock = installFetch(async (url) => {
+        if (/\/api\/v1\/matchqueue\?/.test(url)) {
+          return jsonResponse({ page: 1, pageSize: 1, totalRecords: 3, records: [] });
+        }
+
+        if (url.endsWith('/musicvideo/settings')) {
+          return jsonResponse({ enabled: true });
+        }
+
+        if (url.endsWith('/musicvideo/match/summary')) {
+          await gate;
+
+          return jsonResponse({ ...SUMMARY, ambiguous: 36 });
+        }
+
+        return jsonResponse([]);
+      });
+      renderShell();
+
+      await screen.findByRole('link', { name: /Match/ });
+      await waitFor(() => expect(mock.calls.some((call) => call.url.endsWith('/musicvideo/match/summary'))).toBe(true));
+      expect(screen.queryByLabelText(/to review/)).not.toBeInTheDocument();
+
+      release();
+
+      expect(await screen.findByLabelText('39 to review: 3 music files, 36 music videos')).toHaveTextContent('39');
+    });
+
     it('counts only the reference files while music videos are off', async () => {
       installMatchRoutes(false);
       renderShell();

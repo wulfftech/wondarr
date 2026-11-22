@@ -64,14 +64,25 @@ export function nothingBetterOnYouTube(video: MusicVideoResource, now = Date.now
 /**
  * The toast that says what is on its way: «title» when the video is known by name. With the number of other downloads
  * ahead of it (`aheadInQueue`, from the server), "Downloading" when there are none and "Queued … behind N other
- * download(s)" otherwise. Without it, the status says: "Queued" while it waits for the shared yt-dlp gate.
+ * download(s)" otherwise. Without it, the status says: "Queued" while it waits for the shared yt-dlp gate. A re-grab of
+ * the video the song already holds (`checking`) only looks for a better copy, so it says that and not "Downloading".
  */
 export function downloadMessage(
   title: string | null | undefined,
   status: MusicVideoStatus | null | undefined,
   aheadInQueue?: number | string | null,
+  checking = false,
 ): string {
   const named = title === null || title === undefined || title === '' ? 'music video' : `«${title}»`;
+
+  if (checking) {
+    const copy = title === null || title === undefined || title === '' ? 'a better copy' : `a better copy of ${named}`;
+    const ahead = Number(aheadInQueue ?? 0);
+
+    return Number.isFinite(ahead) && ahead > 0
+      ? `Queued the check for ${copy} behind ${String(ahead)} other ${ahead === 1 ? 'download' : 'downloads'}`
+      : `Checking YouTube for ${copy}`;
+  }
 
   if (aheadInQueue !== null && aheadInQueue !== undefined && Number.isFinite(Number(aheadInQueue))) {
     const ahead = Number(aheadInQueue);
@@ -322,7 +333,7 @@ export interface MusicVideoGrabOutcome {
 export function useGrabMusicVideo(): UseMutationResult<
   MusicVideoGrabOutcome,
   Error,
-  { songId: number; videoId: string; videoTitle?: string }
+  { songId: number; videoId: string; videoTitle?: string; checkingBetterCopy?: boolean }
 > {
   const client = useApiClient();
   const queryClient = useQueryClient();
@@ -343,8 +354,11 @@ export function useGrabMusicVideo(): UseMutationResult<
         ...(data?.aheadInQueue === undefined ? {} : { aheadInQueue: Number(data.aheadInQueue) }),
       } as MusicVideoGrabOutcome;
     },
-    onSuccess: (outcome, { songId, videoTitle }) => {
-      notifications.show({ message: downloadMessage(videoTitle, outcome.status, outcome.aheadInQueue), color: 'blue' });
+    onSuccess: (outcome, { songId, videoTitle, checkingBetterCopy }) => {
+      notifications.show({
+        message: downloadMessage(videoTitle, outcome.status, outcome.aheadInQueue, checkingBetterCopy === true),
+        color: 'blue',
+      });
       void queryClient.invalidateQueries({ queryKey: [...MUSIC_VIDEO_KEY, 'song', songId] });
       invalidateLibrary(queryClient);
     },
