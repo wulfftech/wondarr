@@ -340,7 +340,9 @@ export function useMatchQueueTotal(): number | null {
 }
 
 /** Settles one file: a ranked candidate, an id picked from a search, or "leave it alone". */
-export function useResolveMatch(): UseMutationResult<MatchResolveResource, Error, MatchResolveInput> {
+export function useResolveMatch(
+  options: { silent?: boolean } = {},
+): UseMutationResult<MatchResolveResource, Error, MatchResolveInput> {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
@@ -370,10 +372,18 @@ export function useResolveMatch(): UseMutationResult<MatchResolveResource, Error
     },
     // The toasts live here, not in the caller: a per-call callback is dropped when the caller re-renders mid-request.
     onSuccess: (result) => {
-      notifyReplacement(result);
+      // A caller that settles quietly (the automatic settle of a MusicBrainz return) shows its own result.
+      if (options.silent !== true) {
+        notifyReplacement(result);
+      }
+
       invalidateReferences(queryClient);
     },
-    onError: (error: Error) => notifications.show({ message: error.message, color: 'red' }),
+    onError: (error: Error) => {
+      if (options.silent !== true) {
+        notifications.show({ message: error.message, color: 'red' });
+      }
+    },
   });
 }
 

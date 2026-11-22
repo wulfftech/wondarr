@@ -89,6 +89,15 @@ const failed = (error: Error): void => {
   notifications.show({ message: error.message, color: 'red' });
 };
 
+/** Options of a hook whose caller shows the error itself, inline, so the hook must not toast it as well. */
+export interface FeedbackOptions {
+  /** Leave the error to the caller (one display per failure). Default false: the hook toasts it. */
+  silent?: boolean;
+}
+
+/** The error handler for a hook: the toast, unless the caller shows the error itself. */
+const failedUnless = (silent: boolean | undefined) => (silent === true ? undefined : failed);
+
 /** The address of a video on YouTube. */
 export function youTubeUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
@@ -261,7 +270,9 @@ export type SearchInput = number | { songId: number; autoDownload: boolean };
  * Searches MusicBrainz and YouTube Music for a song's video. A confident match has its download queued
  * (`queued`); otherwise the ranked candidates come back for the person to pick from.
  */
-export function useSearchMusicVideo(): UseMutationResult<MusicVideoSearchResultResource, Error, SearchInput> {
+export function useSearchMusicVideo(
+  options: FeedbackOptions = {},
+): UseMutationResult<MusicVideoSearchResultResource, Error, SearchInput> {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
@@ -294,7 +305,7 @@ export function useSearchMusicVideo(): UseMutationResult<MusicVideoSearchResultR
         invalidateLibrary(queryClient);
       }
     },
-    onError: failed,
+    onError: failedUnless(options.silent),
   });
 }
 
@@ -363,12 +374,13 @@ export function useDismissReplaceFailure(): UseMutationResult<void, Error, numbe
   });
 }
 
-/** Removes a song's video, and blocklists the YouTube video for the song unless told not to. */
-export function useDeleteMusicVideo(): UseMutationResult<
-  MusicVideoRemovedResource,
-  Error,
-  { songId: number; blocklist: boolean }
-> {
+/**
+ * Removes a song's video, and blocklists the YouTube video for the song unless told not to. `onRemoved` runs from the
+ * hook, so it still runs when the view that asked has been remounted meanwhile.
+ */
+export function useDeleteMusicVideo(
+  options: FeedbackOptions & { onRemoved?: () => void } = {},
+): UseMutationResult<MusicVideoRemovedResource, Error, { songId: number; blocklist: boolean }> {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
@@ -388,8 +400,9 @@ export function useDeleteMusicVideo(): UseMutationResult<
       notifications.show({ message: 'Removed the music video', color: 'green' });
       void queryClient.invalidateQueries({ queryKey: [...MUSIC_VIDEO_KEY, 'song', songId] });
       invalidateLibrary(queryClient);
+      options.onRemoved?.();
     },
-    onError: failed,
+    onError: failedUnless(options.silent),
   });
 }
 

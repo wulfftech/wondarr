@@ -131,6 +131,12 @@ public static class MusicVideoTitleMatcher
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
+    /// <summary>Words that make a bracket another cut of the song, so an alternate-title bracket must not hold them.</summary>
+    private static readonly Regex CutWords = new(
+        @"\b(?:version|ver\.?|cut|medley|take|intro|outro|skit|remaster(?:ed)?|mix|edit)\b",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
     /// <summary>A reprise or an interlude: a different track from the song the words are taken from.</summary>
     private static readonly Regex TrackKindWords = new(
         @"\b(?:reprise|interlude)\b",
@@ -302,6 +308,9 @@ public static class MusicVideoTitleMatcher
             segments.AddRange(parts);
         }
 
+        // A featured artist ("feat. French Montana", "ft. Swedish House Mafia") is not a language.
+        segments = [.. segments.Select(segment => FeaturingTail.Replace(segment, string.Empty))];
+
         return segments.Any(segment => LanguageWords.Matches(segment).Any(match => !inSong.Contains(match.Value.ToLowerInvariant())));
     }
 
@@ -344,6 +353,12 @@ public static class MusicVideoTitleMatcher
 
             if (kept is not null)
             {
+                // Every part was a note: the whole bracket goes, not an empty "()".
+                if (kept.Count == 0)
+                {
+                    return string.Empty;
+                }
+
                 content = string.Join("/", kept);
                 changed = true;
             }
@@ -524,6 +539,7 @@ public static class MusicVideoTitleMatcher
             || LanguageWords.IsMatch(content)
             || NotAVideoWords.IsMatch(content)
             || TrackMarkers.IsMatch(content)
+            || CutWords.IsMatch(content)
             || (VersionFlagParser.Parse(content, disambiguation: content).Flags & VersionFlagNames.HardFlags) != VersionFlags.None)
         {
             return false;
@@ -795,7 +811,13 @@ public static class MusicVideoTitleMatcher
             return false;
         }
 
-        // A channel that names two artists ("Yusuf / Cat Stevens") passes when either part does.
+        // The whole name first (an artist credited as "Yusuf / Cat Stevens"), then a channel that names two artists
+        // ("Yusuf / Cat Stevens") passes when either part does.
+        if (ChannelPartNamesArtist(channelName, songArtists))
+        {
+            return true;
+        }
+
         foreach (var part in channelName.Split(" / ", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
             if (ChannelPartNamesArtist(part, songArtists))

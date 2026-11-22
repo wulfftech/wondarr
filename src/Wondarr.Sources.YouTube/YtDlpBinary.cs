@@ -432,6 +432,15 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
             return;
         }
 
+        // What an earlier process kept is read (again) first and merged in; if it still cannot be read, nothing is written,
+        // so a stored last success is never replaced by an empty one.
+        await EnsureLoadedAsync(CancellationToken.None).ConfigureAwait(false);
+
+        if (!Volatile.Read(ref _loaded))
+        {
+            return;
+        }
+
         StoredYtDlpUpdate status;
 
         lock (_stateLock)

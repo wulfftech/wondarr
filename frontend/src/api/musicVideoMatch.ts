@@ -225,7 +225,7 @@ export function useBulkMusicVideoMatch(): UseMutationResult<
 }
 
 /** Starts a scan of the video folder. It runs in the background; the counts catch up as it works. */
-export function useScanMusicVideos(): UseMutationResult<void, Error, void> {
+export function useScanMusicVideos(options: { silent?: boolean } = {}): UseMutationResult<void, Error, void> {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
@@ -241,6 +241,6 @@ export function useScanMusicVideos(): UseMutationResult<void, Error, void> {
       notifications.show({ message: 'Scanning the video folder', color: 'blue' });
       settled(queryClient);
     },
-    onError: failed,
+    onError: options.silent === true ? undefined : failed,
   });
 }

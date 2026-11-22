@@ -204,7 +204,8 @@ function FailedView({
   onPickAnother: () => void;
   onRemoved: () => void;
 }) {
-  const remove = useDeleteMusicVideo();
+  // The error shows inline below, so the hook does not toast it; onRemoved runs from the hook, past a remount.
+  const remove = useDeleteMusicVideo({ silent: true, onRemoved });
 
   return (
     <Stack gap="md">
@@ -240,7 +241,7 @@ function FailedView({
           size="xs"
           loading={remove.isPending}
           // The file never landed, so there is nothing to lose and nothing to blocklist.
-          onClick={() => remove.mutate({ songId: Number(video.songId), blocklist: false }, { onSuccess: onRemoved })}
+          onClick={() => remove.mutate({ songId: Number(video.songId), blocklist: false })}
         >
           Remove
         </Button>
@@ -259,7 +260,7 @@ function ManageView({
   onReplace: () => void;
   onRemoved: () => void;
 }) {
-  const remove = useDeleteMusicVideo();
+  const remove = useDeleteMusicVideo({ silent: true, onRemoved });
   const grab = useGrabMusicVideo();
   const dismiss = useDismissReplaceFailure();
   const [confirming, setConfirming] = useState(false);
@@ -383,12 +384,7 @@ function ManageView({
               color="red"
               size="xs"
               loading={remove.isPending}
-              onClick={() =>
-                remove.mutate(
-                  { songId: Number(video.songId), blocklist: blocklist && !found },
-                  { onSuccess: onRemoved },
-                )
-              }
+              onClick={() => remove.mutate({ songId: Number(video.songId), blocklist: blocklist && !found })}
             >
               Remove
             </Button>
@@ -461,7 +457,8 @@ export function MusicVideoPanel({
   onRemoved,
 }: MusicVideoPanelProps) {
   const video = useSongMusicVideo(songId);
-  const search = useSearchMusicVideo();
+  // The search error shows inline in the panel, so the hook does not toast it too.
+  const search = useSearchMusicVideo({ silent: true });
   const grab = useGrabMusicVideo();
   const [picking, setPicking] = useState(initialCandidates !== undefined || searchOnOpen);
   const [partial, setPartial] = useState(initialPartial);

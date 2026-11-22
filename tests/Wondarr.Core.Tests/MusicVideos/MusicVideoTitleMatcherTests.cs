@@ -653,4 +653,54 @@ public sealed class MusicVideoTitleMatcherTests
     {
         MusicVideoTitleMatcher.ChannelNamesArtist(channel, [artist]).Should().Be(expected);
     }
+
+    // M-70 review fixes.
+
+    [Theory]
+    [InlineData("Fergie - London Bridge (Alternate Version)")]
+    [InlineData("Fergie - London Bridge (Director's Cut)")]
+    [InlineData("Fergie - London Bridge (Taylor's Version)")]
+    [InlineData("Fergie - London Bridge (Piano Version)")]
+    [InlineData("Fergie - London Bridge (Duet Version)")]
+    [InlineData("Fergie - London Bridge (Medley)")]
+    [InlineData("Fergie - London Bridge (Take 2)")]
+    [InlineData("Fergie - London Bridge (Intro)")]
+    [InlineData("Fergie - London Bridge (Club Mix)")]
+    public void An_alternate_bracket_that_names_a_cut_of_the_song_is_not_accepted(string videoTitle)
+    {
+        MusicVideoTitleMatcher.Evaluate("London Bridge", ["Fergie"], videoTitle).IsTitledWithAlternateBracket.Should().BeFalse();
+    }
+
+    [Fact]
+    public void An_alternate_title_bracket_is_still_accepted_and_a_remaster_bracket_is_still_noise()
+    {
+        MusicVideoTitleMatcher.Evaluate("London Bridge", ["Fergie"], "Fergie - London Bridge (Oh Snap)").IsTitledWithAlternateBracket.Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate("London Bridge", ["Fergie"], "Fergie - London Bridge (Oh Snap) (Remastered 2020)").IsTitledWithAlternateBracket.Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate("London Bridge", ["Fergie"], "Fergie - London Bridge (Remastered)").IsTitledAsTheSong.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_channel_that_is_the_whole_credited_name_passes_before_it_is_split()
+    {
+        MusicVideoTitleMatcher.ChannelNamesArtist("Yusuf / Cat Stevens", ["Yusuf / Cat Stevens"]).Should().BeTrue();
+        MusicVideoTitleMatcher.ChannelNamesArtist("Yusuf / Cat Stevens", ["Cat Stevens"]).Should().BeTrue();
+        MusicVideoTitleMatcher.ChannelNamesArtist("Yusuf / Cat Stevens", ["Yusuf"]).Should().BeTrue();
+        MusicVideoTitleMatcher.ChannelNamesArtist("Fan / Queen Covers", ["Queen"]).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Artist - Song (feat. French Montana)")]
+    [InlineData("Artist - Song [ft. Swedish House Mafia]")]
+    [InlineData("Artist - Song - feat. French Montana")]
+    [InlineData("Artist - Song ft. Swedish House Mafia")]
+    public void A_language_word_in_a_featuring_clause_is_not_a_language_version(string videoTitle)
+    {
+        MusicVideoTitleMatcher.IsOtherVersion("Song", videoTitle, ["Artist"]).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_bracket_whose_parts_are_all_notes_is_dropped_without_an_empty_pair()
+    {
+        MusicVideoTitleMatcher.Strip("Song (From \"Frozen\"/From the Movie Frozen)").Title.Should().Be("Song");
+    }
 }

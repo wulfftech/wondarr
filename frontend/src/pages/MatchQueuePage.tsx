@@ -375,12 +375,6 @@ function ReviewDrawer({
 
       <AddToMusicBrainz item={item} />
 
-      {resolve.error !== null && (
-        <Alert color="red" icon={<CircleAlert size={16} />}>
-          {resolve.error.message}
-        </Alert>
-      )}
-
       <Group justify="space-between">
         <Button variant="default" onClick={() => settle({ id: Number(item.id), skip: true })}>
           Skip

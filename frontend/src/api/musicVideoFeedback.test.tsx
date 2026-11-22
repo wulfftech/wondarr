@@ -7,6 +7,7 @@ import { useState, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createTestConfig, installFetch, jsonResponse } from '../test/helpers';
 import { ApiProvider } from './ApiProvider';
+import { useResolveMatch } from './references';
 import {
   BEST_AVAILABLE_FRESH_MS,
   downloadMessage,
@@ -208,5 +209,99 @@ describe('whether YouTube has a better copy', () => {
     expect(nothingBetterOnYouTube(video(360, '2026-10-23T12:00:00Z'), NOW)).toBe(true);
     expect(nothingBetterOnYouTube(video(1080, '2026-11-20T12:00:00Z'), NOW)).toBe(false);
     expect(nothingBetterOnYouTube(video(null, null), NOW)).toBe(false);
+  });
+});
+
+function SilentResolve() {
+  const resolve = useResolveMatch({ silent: true });
+
+  return (
+    <>
+      <button type="button" onClick={() => resolve.mutate({ id: 5, mbReleaseId: 'rel' })}>
+        Settle
+      </button>
+      {resolve.error !== null && <p>{`inline: ${resolve.error.message}`}</p>}
+    </>
+  );
+}
+
+function LoudRemove() {
+  const remove = useDeleteMusicVideo();
+
+  return (
+    <button type="button" onClick={() => remove.mutate({ songId: 672, blocklist: true })}>
+      Remove
+    </button>
+  );
+}
+
+function SilentRemove({ onRemoved }: { onRemoved: () => void }) {
+  const remove = useDeleteMusicVideo({ silent: true, onRemoved });
+
+  return (
+    <>
+      <button type="button" onClick={() => remove.mutate({ songId: 672, blocklist: true })}>
+        Remove
+      </button>
+      {remove.error !== null && <p>{`inline: ${remove.error.message}`}</p>}
+    </>
+  );
+}
+
+describe('one display per failure', () => {
+  it('shows a silent hook error only where the caller renders it, and no toast from an automatic settle', async () => {
+    const user = userEvent.setup();
+
+    installFetch(() => jsonResponse({ title: 'Not settled', detail: 'The release has no matching recording' }, 409));
+    renderHarness(() => <SilentResolve />);
+
+    await user.click(screen.getByRole('button', { name: 'Settle' }));
+
+    expect(await screen.findByText('inline: The release has no matching recording')).toBeInTheDocument();
+    expect(screen.getAllByText(/The release has no matching recording/)).toHaveLength(1);
+  });
+
+  it('shows a loud hook error once, as a toast', async () => {
+    const user = userEvent.setup();
+
+    installFetch(() => jsonResponse({ title: 'Download in progress', detail: 'A download is in progress' }, 409));
+    renderHarness(() => <LoudRemove />);
+
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+
+    expect(await screen.findByText('A download is in progress')).toBeInTheDocument();
+    expect(screen.getAllByText('A download is in progress')).toHaveLength(1);
+  });
+
+  it('shows a silent removal error once, inline', async () => {
+    const user = userEvent.setup();
+
+    installFetch(() => jsonResponse({ title: 'Download in progress', detail: 'A download is in progress' }, 409));
+    renderHarness(() => <SilentRemove onRemoved={() => undefined} />);
+
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+
+    expect(await screen.findByText('inline: A download is in progress')).toBeInTheDocument();
+    expect(screen.getAllByText(/A download is in progress/)).toHaveLength(1);
+  });
+
+  it('runs onRemoved from the hook after a remount', async () => {
+    const user = userEvent.setup();
+    const gate = held();
+    const removed = vi.fn();
+
+    installFetch((url, init) =>
+      url.includes('/musicvideo/song/672') && init?.method === 'DELETE'
+        ? gate.response
+        : new Response('', { status: 404 }),
+    );
+    renderHarness(() => <SilentRemove onRemoved={removed} />);
+
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    await user.click(screen.getByRole('button', { name: 'Remount' }));
+    gate.release(jsonResponse({ path: null, recycledPaths: [], blocklisted: true }));
+
+    await screen.findByText('Removed the music video');
+    expect(removed).toHaveBeenCalledTimes(1);
   });
 });

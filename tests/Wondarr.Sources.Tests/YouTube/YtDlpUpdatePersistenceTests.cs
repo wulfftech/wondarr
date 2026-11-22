@@ -289,4 +289,57 @@ public sealed class YtDlpUpdatePersistenceTests : IDisposable
 
         public Task<bool> DeleteAsync(string key, CancellationToken cancellationToken) => Task.FromResult(Values.Remove(key));
     }
+
+    [Fact]
+    public async Task A_stored_status_that_could_not_be_read_is_merged_not_overwritten_by_the_next_save()
+    {
+        var success = _time.GetUtcNow() - TimeSpan.FromHours(30);
+        var store = new FlakyStore(new StoredYtDlpUpdate(success, true, "up to date", success, "2026.10.26", null), failLoads: 1);
+        var binary = NewInstance(
+            new FakeProcessRunner().Enqueue(new ProcessResult(100, string.Empty, "ERROR: Unable to obtain version info", TimedOut: false)),
+            store);
+
+        (await binary.UpdateAsync(CancellationToken.None)).Kind.Should().Be(YtDlpUpdateRunKind.Failed);
+
+        store.Saved.Should().NotBeNull();
+        store.Saved!.LastSuccessAt.Should().Be(success, "the stored last success is kept when a failed run is saved");
+        store.Saved.LastCheckSucceeded.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task While_the_stored_status_cannot_be_read_nothing_is_saved()
+    {
+        var store = new FlakyStore(new StoredYtDlpUpdate(_time.GetUtcNow(), true, "x", _time.GetUtcNow(), "1", null), failLoads: int.MaxValue);
+        var binary = NewInstance(new FakeProcessRunner().Enqueue(UpToDateOutput), store);
+
+        await binary.UpdateAsync(CancellationToken.None);
+
+        store.Saved.Should().BeNull("an empty status must not replace the stored one");
+    }
+
+    private sealed class FlakyStore(StoredYtDlpUpdate stored, int failLoads) : IYtDlpUpdateStore
+    {
+        private int _failures = failLoads;
+
+        public StoredYtDlpUpdate? Saved { get; private set; }
+
+        public Task<StoredYtDlpUpdate?> LoadAsync(CancellationToken cancellationToken)
+        {
+            if (_failures > 0)
+            {
+                _failures--;
+
+                throw new InvalidOperationException("db down");
+            }
+
+            return Task.FromResult<StoredYtDlpUpdate?>(Saved ?? stored);
+        }
+
+        public Task SaveAsync(StoredYtDlpUpdate status, CancellationToken cancellationToken)
+        {
+            Saved = status;
+
+            return Task.CompletedTask;
+        }
+    }
 }
