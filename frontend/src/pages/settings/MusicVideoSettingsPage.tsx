@@ -497,22 +497,8 @@ function ScanCard({ settings }: { settings: MusicVideoSettingsResource }) {
           </Text>
         )}
 
-        {scan.error !== null && (
-          <Alert color="red" icon={<CircleAlert size={16} />}>
-            {scan.error.message}
-          </Alert>
-        )}
-
-        <Button
-          variant="default"
-          disabled={!ready}
-          loading={scan.isPending}
-          onClick={() =>
-            scan.mutate(undefined, {
-              onSuccess: () => notifications.show({ message: 'Scanning the video folder', color: 'blue' }),
-            })
-          }
-        >
+        {/* The toasts (started, or why not) belong to the hook. */}
+        <Button variant="default" disabled={!ready} loading={scan.isPending} onClick={() => scan.mutate()}>
           Scan the folder now
         </Button>
       </Stack>

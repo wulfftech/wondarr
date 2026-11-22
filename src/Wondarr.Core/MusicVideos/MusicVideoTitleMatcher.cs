@@ -44,7 +44,7 @@ public static class MusicVideoTitleMatcher
     /// over a picture. Matched as whole words, bracketed, after a dash, after a bar or bare.
     /// </summary>
     private static readonly Regex NotAVideoWords = new(
-        @"\b(?:lyrics?|visuali[sz]er|audio)\b",
+        @"\b(?:lyrics?|visuali[sz]er|audio|sing[\s-]?along)\b",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
@@ -60,11 +60,12 @@ public static class MusicVideoTitleMatcher
 
     /// <summary>
     /// Words that say a video is another version of the song than the studio one, beyond the version flags the
-    /// parser reads: live, a remix, a cover, a reaction, vocals only and the like. A bare "mix" is left to the parser,
+    /// parser reads: live, a remix, a cover, a reaction, vocals only, a reprise, a sign language version, a key change, a
+    /// dance cover or lesson and the like. A bare "mix" is left to the parser,
     /// which reads a named mix ("Rah Mix") as a remix and "Radio Mix" or "Original Mix" as neutral.
     /// </summary>
     private static readonly Regex OtherVersionWords = new(
-        @"\b(?:live|remix|cover(?:ed)?|reaction|reacts?|instrumental|karaoke|acoustic|acapella|a\s+cappella|vocals?\s+only|isolated\s+vocals?|demo|slowed|reverb|sped\s+up|nightcore|8d|bass\s+boosted|chipmunk|pitch(?:ed|\s+shifted)|\d+\s?hz|\d+\s+hours?|loop|festival|festivel|fest|concert|live\s+(?:at|from)|in\s+concert|unplugged|sessions?|bbc|mtv)\b",
+        @"\b(?:live|remix|cover(?:ed)?|reaction|reacts?|instrumental|karaoke|acoustic|acapella|a\s+cappella|vocals?\s+only|isolated\s+vocals?|demo|slowed|reverb|sped\s+up|nightcore|8d|bass\s+boosted|chipmunk|pitch(?:ed|\s+shifted)|\d+\s?hz|\d+\s+hours?|loop|festival|festivel|fest|concert|live\s+(?:at|from)|in\s+concert|unplugged|sessions?|bbc|mtv|reprise|(?:american\s+)?sign\s+language|asl|lower\s+key|higher\s+key|key\s+change|transposed|(?:fe)?male\s+version|choreography|dance\s+cover|dance\s+tutorial|tutorial|lessons?|so\s+you\s+think\s+you\s+can\s+dance)\b",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
@@ -73,7 +74,7 @@ public static class MusicVideoTitleMatcher
     /// video, a visualizer or a static video. They count in a bracket or after a separator ("Title // Lyrics").
     /// </summary>
     private static readonly Regex AudioOnlyWords = new(
-        @"(?:[\(\[][^\)\]]*|(?:\s[-–—|*•·~]|\s//|:)\s*(?:official\s+)?)\b(?<word>official\s+audio|audio|lyrics?(?:\s+video)?|visuali[sz]er|static\s+video)\b",
+        @"(?:[\(\[][^\)\]]*|(?:\s[-–—|*•·~]|\s//|:)\s*(?:official\s+)?)\b(?<word>official\s+audio|audio|lyrics?(?:\s+video)?|visuali[sz]er|static\s+video|sing[\s-]?along)\b",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
@@ -117,6 +118,35 @@ public static class MusicVideoTitleMatcher
     private static readonly Regex YearBracket = new(
         @"^(?:19|20)\d{2}$",
         RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>
+    /// A language, in English or in the language itself, or a subtitle marker: another version of the song when a
+    /// bracket or a dash part names it ("Sub. Español", "Brazilian Portuguese", "Persian"). "In Spanish" and
+    /// "Spanish version" hold the language name, so they match too.
+    /// </summary>
+    private static readonly Regex LanguageWords = new(
+        @"\b(?:english|spanish|espa[nñ]ol|castellano|portuguese|portugu[eê]s|brazilian|french|fran[cç]ais|german|deutsch|italian|italiano|persian|farsi|thai|japanese|korean|chinese|mandarin|cantonese|russian|polish|polski|dutch|nederlands|swedish|svenska|norwegian|norsk|danish|dansk|finnish|suomi|turkish|t[uü]rk[cç]e|arabic|hindi|indonesian|malay|vietnamese|hebrew|greek|latin|tagalog|filipino|subs?|subtitles?|subtitulad[oa]|legendad[oa])\b"
+        + @"|(?<![\p{L}\p{N}])(?:日本語|한국어|中文|русский|العربية|हिन्दी|עברית|ελληνικά|فارسی|ไทย)(?![\p{L}\p{N}])",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>Words that make a bracket another cut of the song, so an alternate-title bracket must not hold them.</summary>
+    private static readonly Regex CutWords = new(
+        @"\b(?:version|ver\.?|cut|medley|take|intro|outro|skit|remaster(?:ed)?|mix|edit)\b",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>A reprise or an interlude: a different track from the song the words are taken from.</summary>
+    private static readonly Regex TrackKindWords = new(
+        @"\b(?:reprise|interlude)\b",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>The markers of a track that is a part of something bigger: a reprise, an interlude or "part 2".</summary>
+    private static readonly Regex TrackMarkers = new(
+        @"\b(?:reprise(?:\s+\d+)?|interlude(?:\s+\d+)?|(?:part|pt\.?)\s*\d+)\b",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
     /// <summary>
@@ -184,6 +214,106 @@ public static class MusicVideoTitleMatcher
         OtherVersionWords.IsMatch(note)
         || (songTitle is not null && songTitle.Contains(note.Trim(' ', '-', '–', '—'), StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// The parts of a bracket's "/"-separated content that are not soundtrack notes, or <see langword="null"/> when the
+    /// content has no such split or every part stays. Slashes inside quotes ("AC/DC") do not split.
+    /// </summary>
+    private static List<string>? KeptParts(string content, string? songTitle)
+    {
+        if (!content.Contains('/', StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var parts = new List<string>();
+        var current = new System.Text.StringBuilder();
+        var quoted = false;
+
+        foreach (var character in content)
+        {
+            if (character is '"' or '“' or '”')
+            {
+                quoted = character == '“' || (character == '"' && !quoted);
+            }
+
+            if (character == '/' && !quoted)
+            {
+                parts.Add(current.ToString().Trim());
+                current.Clear();
+            }
+            else
+            {
+                current.Append(character);
+            }
+        }
+
+        parts.Add(current.ToString().Trim());
+
+        if (parts.Count < 2)
+        {
+            return null;
+        }
+
+        var kept = parts.Where(part => part.Length > 0 && !IsSoundtrackNote(part, songTitle)).ToList();
+
+        return kept.Count < parts.Count ? kept : null;
+    }
+
+    /// <summary>
+    /// The song title's comparison texts. A reprise, interlude or part marker in a bracket of the song's own title
+    /// ("When Will My Life Begin (reprise 1)") is part of the title, so the variants that dropped it are not used.
+    /// </summary>
+    private static IReadOnlyList<string> SongVariants(string songTitle)
+    {
+        var all = CandidateTitleMatcher.SongVariants(songTitle);
+        var markers = TrackMarkers.Matches(songTitle).Select(match => Whitespace.Replace(match.Value, " ").ToLowerInvariant()).ToList();
+
+        if (markers.Count == 0)
+        {
+            return all;
+        }
+
+        var kept = all.Where(variant => markers.All(marker => Whitespace.Replace(variant, " ").Contains(marker, StringComparison.OrdinalIgnoreCase))).ToList();
+
+        return kept.Count > 0 ? kept : all;
+    }
+
+    /// <summary>Whether one of the titles is a reprise or an interlude and the other is not: a different track.</summary>
+    private static bool TrackKindsDiffer(string songTitle, string videoText)
+    {
+        var song = TrackKindWords.Matches(songTitle).Select(match => match.Value.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+        var video = TrackKindWords.Matches(videoText).Select(match => match.Value.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+
+        return !song.SetEquals(video);
+    }
+
+    /// <summary>
+    /// Whether a bracket or a dash part of the (artist-less) title names a language or a subtitle marker that neither the
+    /// song's title nor its artists carry: a version in another language.
+    /// </summary>
+    private static bool NamesOtherLanguage(string stripped, string songTitle, IReadOnlyList<string>? songArtists)
+    {
+        var inSong = LanguageWords.Matches(songTitle).Select(match => match.Value.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+
+        foreach (var artist in songArtists ?? [])
+        {
+            inSong.UnionWith(LanguageWords.Matches(artist).Select(match => match.Value.ToLowerInvariant()));
+        }
+
+        var segments = BracketRegex.Matches(stripped).Select(match => match.Groups[1].Value).ToList();
+        var parts = TitleParts(stripped);
+
+        if (parts.Count > 1)
+        {
+            segments.AddRange(parts);
+        }
+
+        // A featured artist ("feat. French Montana", "ft. Swedish House Mafia") is not a language.
+        segments = [.. segments.Select(segment => FeaturingTail.Replace(segment, string.Empty))];
+
+        return segments.Any(segment => LanguageWords.Matches(segment).Any(match => !inSong.Contains(match.Value.ToLowerInvariant())));
+    }
+
     /// <summary>Whether a bracket's content is only an edit or single-version marker, which a music video ignores.</summary>
     private static bool IsSoftVersion(string content) => SoftVersion.IsMatch(content);
 
@@ -214,7 +344,24 @@ public static class MusicVideoTitleMatcher
 
         var stripped = BracketRegex.Replace(videoTitle, match =>
         {
+            var changed = false;
             var content = match.Groups[1].Value.Trim();
+
+            // A soundtrack bracket with "/"-separated parts is judged part by part: only the "From ..." part is noise
+            // ("From "Frozen 2"/Sing-Along" keeps "Sing-Along").
+            var kept = KeptParts(content, songTitle);
+
+            if (kept is not null)
+            {
+                // Every part was a note: the whole bracket goes, not an empty "()".
+                if (kept.Count == 0)
+                {
+                    return string.Empty;
+                }
+
+                content = string.Join("/", kept);
+                changed = true;
+            }
 
             // A bracket goes only when all of it is noise, and never one that names a version. An edit or a
             // single version is not a version for a music video (Roxette "Joyride (single edit)").
@@ -225,7 +372,7 @@ public static class MusicVideoTitleMatcher
                 && !YearBracket.IsMatch(content)
                 && !IsSoundtrackNote(content, songTitle))
             {
-                return match.Value;
+                return changed ? $" ({content})" : match.Value;
             }
 
             lyricOrVisualizer |= NotAMusicVideo.Contains(content, StringComparer.OrdinalIgnoreCase);
@@ -265,6 +412,11 @@ public static class MusicVideoTitleMatcher
             return 0;
         }
 
+        if (TrackKindsDiffer(songTitle, stripped))
+        {
+            return 0;
+        }
+
         var hard = VideoHardFlags;
         songTitle = SearchTitle(songTitle);
         var parts = TitleParts(stripped);
@@ -275,7 +427,7 @@ public static class MusicVideoTitleMatcher
             return 0;
         }
 
-        var songVariants = CandidateTitleMatcher.SongVariants(songTitle);
+        var songVariants = SongVariants(songTitle);
         var videoTexts = new List<string> { stripped };
         videoTexts.AddRange(parts);
 
@@ -323,7 +475,16 @@ public static class MusicVideoTitleMatcher
     /// <param name="TitleSimilarity">How close the title (the part after the artist, when named) is to the song's, 0 to 1.</param>
     /// <param name="IsTitledAsTheSong">Whether it is the song's title at or above the title floor, in the studio version, and not a lyric video.</param>
     /// <param name="IsOtherVersion">Whether the title says it is a live, remix, cover, vocals-only or similar version.</param>
-    public sealed record Evaluation(bool ArtistInTitle, double TitleSimilarity, bool IsTitledAsTheSong, bool IsOtherVersion);
+    /// <param name="IsTitledWithAlternateBracket">
+    /// Whether the title is the song's title plus one extra bracket that holds no version, other-version, language or
+    /// lyric word ("London Bridge (Oh Snap)"). Never true when <paramref name="IsTitledAsTheSong"/> is.
+    /// </param>
+    public sealed record Evaluation(
+        bool ArtistInTitle,
+        double TitleSimilarity,
+        bool IsTitledAsTheSong,
+        bool IsOtherVersion,
+        bool IsTitledWithAlternateBracket = false);
 
     /// <summary>Judges a search result's title against the song.</summary>
     /// <param name="songTitle">The song's title.</param>
@@ -344,15 +505,49 @@ public static class MusicVideoTitleMatcher
         }
 
         var otherVersion = IsOtherVersion(songTitle, videoTitle, songArtists);
+        var plain = !IsNotAMusicVideo(songTitle, videoTitle) && !otherVersion;
+        var titled = plain
+            && similarity >= DecisionEngine.TitleFloor
+            && IsStrictTitle(songTitle, videoTitle, remaining);
 
         return new Evaluation(
             remaining is not null,
             similarity,
-            !IsNotAMusicVideo(songTitle, videoTitle)
-                && !otherVersion
-                && similarity >= DecisionEngine.TitleFloor
-                && IsStrictTitle(songTitle, videoTitle, remaining),
-            otherVersion);
+            titled,
+            otherVersion,
+            plain && !titled && IsTitledWithAlternateBracket(songTitle, videoTitle, remaining));
+    }
+
+    /// <summary>
+    /// Whether a title is the song's title plus exactly one more bracket, and that bracket (after the noise is stripped)
+    /// names no version, other version, language, lyric word, reprise or part.
+    /// </summary>
+    private static bool IsTitledWithAlternateBracket(string songTitle, string videoTitle, string? remaining)
+    {
+        var stripped = Whitespace.Replace(Strip(remaining ?? videoTitle, songTitle).Title, " ").Trim();
+        var brackets = BracketRegex.Matches(stripped);
+
+        if (brackets.Count != 1)
+        {
+            return false;
+        }
+
+        var content = brackets[0].Groups[1].Value.Trim();
+
+        if (content.Length == 0
+            || OtherVersionWords.IsMatch(content)
+            || LanguageWords.IsMatch(content)
+            || NotAVideoWords.IsMatch(content)
+            || TrackMarkers.IsMatch(content)
+            || CutWords.IsMatch(content)
+            || (VersionFlagParser.Parse(content, disambiguation: content).Flags & VersionFlagNames.HardFlags) != VersionFlags.None)
+        {
+            return false;
+        }
+
+        var without = Whitespace.Replace(BracketRegex.Replace(stripped, " "), " ").Trim();
+
+        return without.Length > 0 && IsStrictTitle(songTitle, without, null);
     }
 
     /// <summary>
@@ -422,6 +617,11 @@ public static class MusicVideoTitleMatcher
             : Strip(TitleAfterArtist(videoTitle, songArtists, songTitle) ?? videoTitle, songTitle).Title;
         var flags = VideoFlags(stripped, TitleParts(stripped));
 
+        if (NamesOtherLanguage(stripped, songTitle, songArtists))
+        {
+            return true;
+        }
+
         // The song's own title may carry the word ("Live and Let Die"), which a part after a dash reads as a hint.
         var songFlags = (VersionFlagParser.Parse(songTitle).Flags | VersionFlagParser.Parse(songTitle, disambiguation: songTitle).Flags)
             & VideoHardFlags;
@@ -461,7 +661,7 @@ public static class MusicVideoTitleMatcher
     /// </summary>
     private static bool IsStrictTitle(string songTitle, string videoTitle, string? remaining)
     {
-        var variants = CandidateTitleMatcher.SongVariants(SearchTitle(songTitle));
+        var variants = SongVariants(SearchTitle(songTitle));
         var texts = new List<string>();
 
         foreach (var title in new[] { videoTitle, remaining })
@@ -478,6 +678,12 @@ public static class MusicVideoTitleMatcher
 
         foreach (var text in texts)
         {
+            // A reprise or an interlude on one side only is another track.
+            if (TrackKindsDiffer(songTitle, text))
+            {
+                continue;
+            }
+
             var bare = FeaturingTail.Replace(text, string.Empty).Trim();
 
             foreach (var variant in variants)
@@ -605,6 +811,26 @@ public static class MusicVideoTitleMatcher
             return false;
         }
 
+        // The whole name first (an artist credited as "Yusuf / Cat Stevens"), then a channel that names two artists
+        // ("Yusuf / Cat Stevens") passes when either part does.
+        if (ChannelPartNamesArtist(channelName, songArtists))
+        {
+            return true;
+        }
+
+        foreach (var part in channelName.Split(" / ", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (ChannelPartNamesArtist(part, songArtists))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool ChannelPartNamesArtist(string channelName, IReadOnlyList<string> songArtists)
+    {
         var channel = ChannelKey(channelName);
 
         if (channel.Length == 0)

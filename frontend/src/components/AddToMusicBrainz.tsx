@@ -204,7 +204,8 @@ export function MusicBrainzReturnNotice({
   path: string | null;
   onDone: () => void;
 }) {
-  const resolve = useResolveMatch();
+  // The card shows the result and the error itself, and the settle runs by itself on arrival: no toast from here.
+  const resolve = useResolveMatch({ silent: true });
   const started = useRef(false);
   const file = returned.pending?.path ?? path ?? `reference file ${returned.fileId}`;
   const releaseUrl = `https://musicbrainz.org/release/${returned.releaseId}`;

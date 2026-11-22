@@ -1,3 +1,4 @@
+import { notifications } from '@mantine/notifications';
 import {
   useMutation,
   useQuery,
@@ -20,6 +21,7 @@ export type MusicVideoCandidateResource = components['schemas']['MusicVideoCandi
 export type MusicVideoSearchResultResource = components['schemas']['MusicVideoSearchResultResource'];
 export type MusicVideoRemovedResource = components['schemas']['MusicVideoRemovedResource'];
 export type MusicVideoStatus = components['schemas']['MusicVideoStatus'];
+export type MusicVideoPendingReplacementResource = components['schemas']['MusicVideoPendingReplacementResource'];
 
 export const MUSIC_VIDEO_KEY = ['musicvideo'] as const;
 export const MUSIC_VIDEO_SETTINGS_QUERY_KEY = [...MUSIC_VIDEO_KEY, 'settings'] as const;
@@ -38,15 +40,63 @@ export function videoThumbnailUrl(videoId: string): string {
   return `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`;
 }
 
-/**
- * The toast that says what is on its way: «title» when the video is known by name. "Queued" while the download
- * waits for the shared yt-dlp gate, "Downloading" only once it has started.
- */
-export function downloadMessage(title: string | null | undefined, status: MusicVideoStatus | null | undefined): string {
-  const verb = status === 'downloading' ? 'Downloading' : 'Queued';
+/** A best copy that YouTube was last asked about this long ago is asked about again: the button comes back. */
+export const BEST_AVAILABLE_FRESH_MS = 30 * 24 * 60 * 60 * 1000;
 
-  return title === null || title === undefined || title === '' ? `${verb} music video` : `${verb} «${title}»`;
+/**
+ * Whether the last check found nothing better than the filed copy, and is recent enough to be believed: the video's
+ * "Download again" is then pointless and stays hidden.
+ */
+export function nothingBetterOnYouTube(video: MusicVideoResource, now = Date.now()): boolean {
+  const best = video.bestAvailableHeight;
+  const height = video.height;
+  const checkedAt = video.bestAvailableCheckedAt;
+
+  if (best === null || best === undefined || height === null || height === undefined || !checkedAt) {
+    return false;
+  }
+
+  const checked = Date.parse(checkedAt);
+
+  return Number(best) <= Number(height) && Number.isFinite(checked) && now - checked < BEST_AVAILABLE_FRESH_MS;
 }
+
+/**
+ * The toast that says what is on its way: «title» when the video is known by name. With the number of other downloads
+ * ahead of it (`aheadInQueue`, from the server), "Downloading" when there are none and "Queued … behind N other
+ * download(s)" otherwise. Without it, the status says: "Queued" while it waits for the shared yt-dlp gate.
+ */
+export function downloadMessage(
+  title: string | null | undefined,
+  status: MusicVideoStatus | null | undefined,
+  aheadInQueue?: number | string | null,
+): string {
+  const named = title === null || title === undefined || title === '' ? 'music video' : `«${title}»`;
+
+  if (aheadInQueue !== null && aheadInQueue !== undefined && Number.isFinite(Number(aheadInQueue))) {
+    const ahead = Number(aheadInQueue);
+
+    return ahead <= 0
+      ? `Downloading ${named}`
+      : `Queued ${named} behind ${String(ahead)} other ${ahead === 1 ? 'download' : 'downloads'}`;
+  }
+
+  return `${status === 'downloading' ? 'Downloading' : 'Queued'} ${named}`;
+}
+
+/** Feedback for a mutation lives in the hook, not in the caller: a per-call callback is dropped if the caller re-renders. */
+const failed = (error: Error): void => {
+  notifications.show({ message: error.message, color: 'red' });
+};
+
+/** Options of a hook whose caller shows the error itself, inline, so the hook must not toast it as well. */
+export interface FeedbackOptions {
+  /** Leave the error to the caller (one display per failure). Default false: the hook toasts it. */
+  silent?: boolean;
+}
+
+/** The error handler for a hook: the toast, unless the caller shows the error itself. */
+const failedUnless = (silent: boolean | undefined) => (silent === true ? undefined : failed);
 
 /** The address of a video on YouTube. */
 export function youTubeUrl(videoId: string): string {
@@ -181,14 +231,15 @@ export function useSongMusicVideo(
 
       return data;
     },
+    // A filed video stays `present` while its replacement downloads; the server says so in `pendingReplacement`.
     refetchInterval: (state) =>
-      isVideoBusy(state.state.data?.status) || isReplacementPending(songId, state.state.data)
+      isVideoBusy(state.state.data?.status) || hasPendingReplacement(state.state.data)
         ? MUSIC_VIDEO_POLL_INTERVAL_MS
         : false,
   });
 
   const status = query.data?.status;
-  const busy = isVideoBusy(status);
+  const busy = isVideoBusy(status) || hasPendingReplacement(query.data);
   const wasBusy = useRef(false);
 
   // The song tables carry the same state in their video column: when the video goes from busy to settled, they are
@@ -207,34 +258,9 @@ export function useSongMusicVideo(
   return query;
 }
 
-/**
- * Replacements that were queued from this page: the filed video stays `present` while its replacement downloads, so
- * the per-song query would never poll. It does until the row changes (the replacement landed or failed).
- */
-const PENDING_REPLACEMENTS = new Map<number, { updatedAt: string; since: number }>();
-
-/** How long after a pick a replacement is still waited for, in milliseconds. */
-const REPLACEMENT_PATIENCE_MS = 15 * 60 * 1000;
-
-function isReplacementPending(songId: number | null, video: MusicVideoResource | null | undefined): boolean {
-  const pending = songId === null ? undefined : PENDING_REPLACEMENTS.get(songId);
-
-  if (songId === null || pending === undefined) {
-    return false;
-  }
-
-  if (
-    video === null ||
-    video === undefined ||
-    video.updatedAt !== pending.updatedAt ||
-    Date.now() - pending.since > REPLACEMENT_PATIENCE_MS
-  ) {
-    PENDING_REPLACEMENTS.delete(songId);
-
-    return false;
-  }
-
-  return true;
+/** Whether a download is on its way to replace the filed video (queued behind another, or running). */
+export function hasPendingReplacement(video: MusicVideoResource | null | undefined): boolean {
+  return video?.pendingReplacement !== null && video?.pendingReplacement !== undefined;
 }
 
 /** A search for a song, by its id; or with `autoDownload: false`, which only lists the candidates. */
@@ -244,7 +270,9 @@ export type SearchInput = number | { songId: number; autoDownload: boolean };
  * Searches MusicBrainz and YouTube Music for a song's video. A confident match has its download queued
  * (`queued`); otherwise the ranked candidates come back for the person to pick from.
  */
-export function useSearchMusicVideo(): UseMutationResult<MusicVideoSearchResultResource, Error, SearchInput> {
+export function useSearchMusicVideo(
+  options: FeedbackOptions = {},
+): UseMutationResult<MusicVideoSearchResultResource, Error, SearchInput> {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
@@ -265,11 +293,26 @@ export function useSearchMusicVideo(): UseMutationResult<MusicVideoSearchResultR
     onSuccess: (result, input) => {
       if (result.queued) {
         const songId = typeof input === 'number' ? input : input.songId;
+        notifications.show({
+          message: downloadMessage(
+            result.candidates.find((candidate) => candidate.confident)?.title,
+            result.status,
+            result.aheadInQueue,
+          ),
+          color: 'blue',
+        });
         void queryClient.invalidateQueries({ queryKey: [...MUSIC_VIDEO_KEY, 'song', songId] });
         invalidateLibrary(queryClient);
       }
     },
+    onError: failedUnless(options.silent),
   });
+}
+
+/** Where a queued download stands, and how many others are ahead of it. */
+export interface MusicVideoGrabOutcome {
+  status: MusicVideoStatus;
+  aheadInQueue: number;
 }
 
 /**
@@ -277,7 +320,7 @@ export function useSearchMusicVideo(): UseMutationResult<MusicVideoSearchResultR
  * so is the same one when the filed copy is under 720p. Resolves to where the download stands: queued, or downloading.
  */
 export function useGrabMusicVideo(): UseMutationResult<
-  MusicVideoStatus,
+  MusicVideoGrabOutcome,
   Error,
   { songId: number; videoId: string; videoTitle?: string }
 > {
@@ -285,7 +328,7 @@ export function useGrabMusicVideo(): UseMutationResult<
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ songId, videoId, videoTitle }): Promise<MusicVideoStatus> => {
+    mutationFn: async ({ songId, videoId, videoTitle }): Promise<MusicVideoGrabOutcome> => {
       const { data, error, response } = await client.POST('/api/v1/musicvideo/song/{songId}/grab', {
         params: { path: { songId } },
         body: { youTubeVideoId: videoId, ...(videoTitle === undefined ? {} : { videoTitle }) },
@@ -295,18 +338,17 @@ export function useGrabMusicVideo(): UseMutationResult<
         throw problemError(response.status, error, 'The download could not be queued.');
       }
 
-      return data?.status ?? 'queued';
+      return {
+        status: data?.status ?? 'queued',
+        ...(data?.aheadInQueue === undefined ? {} : { aheadInQueue: Number(data.aheadInQueue) }),
+      } as MusicVideoGrabOutcome;
     },
-    onSuccess: (_result, { songId }) => {
-      const held = queryClient.getQueryData<MusicVideoResource | null>([...MUSIC_VIDEO_KEY, 'song', songId]);
-
-      if (held?.status === 'present') {
-        PENDING_REPLACEMENTS.set(songId, { updatedAt: held.updatedAt, since: Date.now() });
-      }
-
+    onSuccess: (outcome, { songId, videoTitle }) => {
+      notifications.show({ message: downloadMessage(videoTitle, outcome.status, outcome.aheadInQueue), color: 'blue' });
       void queryClient.invalidateQueries({ queryKey: [...MUSIC_VIDEO_KEY, 'song', songId] });
       invalidateLibrary(queryClient);
     },
+    onError: failed,
   });
 }
 
@@ -326,18 +368,19 @@ export function useDismissReplaceFailure(): UseMutationResult<void, Error, numbe
       }
     },
     onSuccess: (_result, songId) => {
-      PENDING_REPLACEMENTS.delete(songId);
       void queryClient.invalidateQueries({ queryKey: [...MUSIC_VIDEO_KEY, 'song', songId] });
     },
+    onError: failed,
   });
 }
 
-/** Removes a song's video, and blocklists the YouTube video for the song unless told not to. */
-export function useDeleteMusicVideo(): UseMutationResult<
-  MusicVideoRemovedResource,
-  Error,
-  { songId: number; blocklist: boolean }
-> {
+/**
+ * Removes a song's video, and blocklists the YouTube video for the song unless told not to. `onRemoved` runs from the
+ * hook, so it still runs when the view that asked has been remounted meanwhile.
+ */
+export function useDeleteMusicVideo(
+  options: FeedbackOptions & { onRemoved?: () => void } = {},
+): UseMutationResult<MusicVideoRemovedResource, Error, { songId: number; blocklist: boolean }> {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
@@ -354,9 +397,12 @@ export function useDeleteMusicVideo(): UseMutationResult<
       return data;
     },
     onSuccess: (_result, { songId }) => {
+      notifications.show({ message: 'Removed the music video', color: 'green' });
       void queryClient.invalidateQueries({ queryKey: [...MUSIC_VIDEO_KEY, 'song', songId] });
       invalidateLibrary(queryClient);
+      options.onRemoved?.();
     },
+    onError: failedUnless(options.silent),
   });
 }
 
@@ -384,9 +430,14 @@ export function useBulkSearchMusicVideos(): UseMutationResult<number, Error, num
 
       return queued;
     },
-    onSuccess: () => {
+    onSuccess: (queued) => {
+      notifications.show({
+        message: `Queued a music video search for ${String(queued)} ${queued === 1 ? 'song' : 'songs'}`,
+        color: 'blue',
+      });
       void queryClient.invalidateQueries({ queryKey: MUSIC_VIDEO_KEY });
       invalidateLibrary(queryClient);
     },
+    onError: failed,
   });
 }

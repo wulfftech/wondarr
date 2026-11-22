@@ -97,6 +97,15 @@ public sealed class MusicVideo : EntityBase
     /// <summary>Gets or sets the UTC instant the last replacement failed, or <see langword="null"/>.</summary>
     public DateTime? ReplaceFailedAt { get; set; }
 
+    /// <summary>
+    /// Gets or sets the tallest picture, in pixels, that the last "is there a better copy?" check found YouTube can give for this
+    /// video under the download's format rule, or <see langword="null"/> when it was never checked. Cleared when a new video is filed.
+    /// </summary>
+    public int? BestAvailableHeight { get; set; }
+
+    /// <summary>Gets or sets the UTC instant <see cref="BestAvailableHeight"/> was found, or <see langword="null"/>.</summary>
+    public DateTime? BestAvailableCheckedAt { get; set; }
+
     /// <summary>Gets or sets the song the video belongs to.</summary>
     public Song Song { get; set; } = null!;
 }

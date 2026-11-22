@@ -212,6 +212,57 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
         }
     }
 
+    /// <inheritdoc />
+    public async Task<int?> ReadBestHeightAsync(string videoId, int? maxHeight, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(videoId);
+
+        if (maxHeight is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxHeight), "The height cap must be above 0, or null for no cap.");
+        }
+
+        // The same gate as every other yt-dlp run: YouTube sees one client at a time.
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            var options = _options.CurrentValue;
+            var timeoutSeconds = Math.Min(options.Ytdlp.TimeoutSeconds, VideoReadTimeoutSeconds);
+            ProcessResult result;
+
+            try
+            {
+                result = await RunYtDlpAsync(BuildBestHeightArguments(videoId, maxHeight, options),
+                    TimeSpan.FromSeconds(timeoutSeconds),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (MediaToolMissingException exception)
+            {
+                throw new YtDlpException(videoId, YtDlpErrorKind.ToolMissing, exception.Message, exception);
+            }
+
+            if (result.TimedOut)
+            {
+                throw new YtDlpException(
+                    videoId,
+                    YtDlpErrorKind.TimedOut,
+                    $"yt-dlp was killed after {timeoutSeconds}s while reading the best picture height.");
+            }
+
+            if (result.ExitCode != 0)
+            {
+                throw Classify(videoId, result);
+            }
+
+            return ParseHeight(result.StandardOutput);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     /// <summary>
     /// Probes a video's formats (<c>yt-dlp -F</c>): the health probe, and the check that warns when the
     /// EJS runtime is missing.
@@ -474,9 +525,7 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
         YouTubeOptions options)
     {
         var ytdlp = options.Ytdlp;
-        var format = maxHeight is { } height
-            ? string.Create(CultureInfo.InvariantCulture, $"bv*[height<={height}]+ba/b[height<={height}]")
-            : "bv*+ba/b";
+        var format = VideoFormat(maxHeight);
 
         var arguments = new List<string>
         {
@@ -513,6 +562,50 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
         arguments.Add(YouTubeVideoLinks.WatchUrl(videoId));
 
         return arguments;
+    }
+
+    /// <summary>The format rule of a music video download: the best video and audio up to the height cap.</summary>
+    private static string VideoFormat(int? maxHeight) =>
+        maxHeight is { } height
+            ? string.Create(CultureInfo.InvariantCulture, $"bv*[height<={height}]+ba/b[height<={height}]")
+            : "bv*+ba/b";
+
+    /// <summary>The best-height check: the download's format rule, nothing downloaded, the picture's height printed.</summary>
+    internal static List<string> BuildBestHeightArguments(string videoId, int? maxHeight, YouTubeOptions options)
+    {
+        var arguments = new List<string>
+        {
+            "-f",
+            VideoFormat(maxHeight),
+            "--skip-download",
+            "--no-playlist",
+            "--no-progress",
+            "--print",
+            "%(height)s",
+        };
+
+        AddAccessArguments(arguments, options);
+
+        arguments.Add("--");
+        arguments.Add(YouTubeVideoLinks.WatchUrl(videoId));
+
+        return arguments;
+    }
+
+    /// <summary>The height yt-dlp printed (the last line that is a whole number above 0), or <see langword="null"/> ("NA", nothing).</summary>
+    internal static int? ParseHeight(string standardOutput)
+    {
+        int? height = null;
+
+        foreach (var line in standardOutput.Split('\n').Select(text => text.Trim()))
+        {
+            if (int.TryParse(line, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) && parsed > 0)
+            {
+                height = parsed;
+            }
+        }
+
+        return height;
     }
 
     /// <summary>

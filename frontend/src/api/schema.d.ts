@@ -7600,6 +7600,11 @@ export interface components {
             /** Format: int64 */
             commandId: number | string;
             status: components["schemas"]["MusicVideoStatus"];
+            /**
+             * Format: int32
+             * @default 0
+             */
+            aheadInQueue: number | string;
         };
         MusicVideoGrabResource: {
             youTubeVideoId: null | string;
@@ -7693,6 +7698,13 @@ export interface components {
             /** Format: int32 */
             needsAttention: number | string;
         };
+        MusicVideoPendingReplacementResource: {
+            youTubeVideoId: string;
+            videoTitle: null | string;
+            status: components["schemas"]["MusicVideoPendingStatus"];
+        };
+        /** @enum {string} */
+        MusicVideoPendingStatus: "queued" | "downloading";
         MusicVideoRemovedResource: {
             path: null | string;
             recycledPaths: string[];
@@ -7726,6 +7738,11 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+            /** Format: int32 */
+            bestAvailableHeight?: null | number | string;
+            /** Format: date-time */
+            bestAvailableCheckedAt?: null | string;
+            pendingReplacement?: null | components["schemas"]["MusicVideoPendingReplacementResource"];
         };
         MusicVideoScanAcceptedResource: {
             /** Format: int64 */
@@ -7736,6 +7753,11 @@ export interface components {
             candidates: components["schemas"]["MusicVideoCandidateResource"][];
             partial: boolean;
             status?: null | components["schemas"]["MusicVideoStatus"];
+            /**
+             * Format: int32
+             * @default 0
+             */
+            aheadInQueue: number | string;
         };
         MusicVideoSettingsResource: {
             enabled: boolean;

@@ -1,13 +1,7 @@
 import { ActionIcon, Group, Loader, Tooltip } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { Clapperboard, Clock, Search, Video, VideoOff } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import {
-  downloadMessage,
-  isVideoBusy,
-  useSearchMusicVideo,
-  type MusicVideoCandidateResource,
-} from '../api/musicVideos';
+import { isVideoBusy, useSearchMusicVideo, type MusicVideoCandidateResource } from '../api/musicVideos';
 import type { SongResource } from '../api/songs';
 import type { PagedColumn } from './PagedTable';
 import { MusicVideoModal } from './MusicVideoModal';
@@ -39,21 +33,14 @@ export function MusicVideoCell({ song }: { song: SongResource }) {
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const state = song.musicVideo ?? null;
 
+  // The toasts (a queued download, a failed search) belong to the hook; only opening the candidates is done here.
   const find = () =>
     search.mutate(songId, {
       onSuccess: (result) => {
-        if (result.queued) {
-          notifications.show({
-            message: downloadMessage(result.candidates.find((candidate) => candidate.confident)?.title, result.status),
-            color: 'blue',
-          });
-
-          return;
+        if (!result.queued) {
+          setDialog({ initialCandidates: result.candidates, initialPartial: result.partial });
         }
-
-        setDialog({ initialCandidates: result.candidates, initialPartial: result.partial });
       },
-      onError: (error: Error) => notifications.show({ message: error.message, color: 'red' }),
     });
 
   let tooltip: string;

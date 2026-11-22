@@ -82,6 +82,14 @@ public sealed partial class YtDlpMusicVideoDownloader : IMusicVideoDownloader
         }
     }
 
+    /// <inheritdoc />
+    public Task<int?> BestHeightAsync(string videoId, int? maxHeight, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(videoId);
+
+        return _runner.ReadBestHeightAsync(videoId, maxHeight, cancellationToken);
+    }
+
     private string WorkRoot() => Path.Combine(_options.CurrentValue.DownloadsDir, WorkRootName);
 
     /// <summary>Deletes a work folder, and only a folder of the work root: nothing else is ever deleted from here.</summary>

@@ -346,4 +346,139 @@ public sealed class YouTubeMusicVideoRealTitleTests
 
         candidates.Should().ContainSingle().Which.Confident.Should().BeFalse();
     }
+
+    // M-70 items 4 and 5: the real titles from the third production review, through fake search and oEmbed answers.
+
+    [Fact]
+    public async Task London_Bridge_ranks_the_official_video_with_an_alternate_bracket_first_and_not_confident()
+    {
+        var innertube = Searching(
+            Upload("AAAAAAAAAAA", "Fergie - London Bridge - So You Think You Can Dance", "SYTYCD Fans"),
+            Upload("BBBBBBBBBBB", "London Bridge - Fergie | Akiva Brooks Choreography", "Akiva Brooks"),
+            Upload("CCCCCCCCCCC", "Fergie - London Bridge (Live)", "Some Fan"),
+            Official("WD33ii01kXI", "London Bridge", "Fergie"));
+
+        var candidates = await FindAsync(
+            Song("London Bridge", "Fergie"),
+            innertube,
+            Real(("WD33ii01kXI", "Fergie - London Bridge (Oh Snap) (Official Music Video)", "FergieVEVO")));
+
+        var best = candidates[0];
+        best.VideoId.Should().Be("WD33ii01kXI");
+        best.Confident.Should().BeFalse("an extra bracket is never confident");
+        best.TitledAsSong.Should().BeTrue("it counts as titled, so it is the Best match");
+        best.Title.Should().Be("Fergie - London Bridge (Oh Snap) (Official Music Video)");
+        candidates.Where(candidate => candidate.VideoId is "AAAAAAAAAAA" or "BBBBBBBBBBB")
+            .Should().OnlyContain(candidate => !candidate.TitledAsSong && !candidate.Confident);
+    }
+
+    [Fact]
+    public async Task An_alternate_bracket_on_a_channel_that_is_not_the_artists_is_not_titled()
+    {
+        var innertube = Searching(Official("WD33ii01kXI", "London Bridge", "Fergie"));
+
+        var candidates = await FindAsync(
+            Song("London Bridge", "Fergie"),
+            innertube,
+            Real(("WD33ii01kXI", "Fergie - London Bridge (Oh Snap) (Official Music Video)", "Some Random Channel")));
+
+        var candidate = candidates.Should().ContainSingle().Subject;
+        candidate.Confident.Should().BeFalse();
+        candidate.TitledAsSong.Should().BeFalse("the channel did not pass the artist check");
+    }
+
+    [Fact]
+    public async Task An_alternate_bracket_naming_a_version_is_not_titled()
+    {
+        var innertube = Searching(Official("WD33ii01kXI", "London Bridge", "Fergie"));
+
+        var candidates = await FindAsync(
+            Song("London Bridge", "Fergie"),
+            innertube,
+            Real(("WD33ii01kXI", "Fergie - London Bridge (Live at the O2) (Official Music Video)", "FergieVEVO")));
+
+        var candidate = candidates.Should().ContainSingle().Subject;
+        candidate.Confident.Should().BeFalse();
+        candidate.TitledAsSong.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Yusuf_slash_Cat_Stevens_is_the_artists_channel_and_Father_and_Son_stays_confident()
+    {
+        var innertube = Searching(Official("P6zaCV4niKk", "Father and Son", "Cat Stevens"));
+
+        var candidates = await FindAsync(
+            Song("Father and Son", "Cat Stevens"),
+            innertube,
+            Real(("P6zaCV4niKk", "Yusuf / Cat Stevens - Father & Son", "Yusuf / Cat Stevens")));
+
+        candidates.Should().ContainSingle().Which.Confident.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Lisa_and_Fans_is_still_not_Lisas_channel()
+    {
+        var innertube = Searching(Official("AAAAAAAAAAA", "Teardrop", "Lisa"));
+
+        var candidates = await FindAsync(
+            Song("Teardrop", "Lisa"),
+            innertube,
+            Real(("AAAAAAAAAAA", "Lisa - Teardrop (Official Video)", "Lisa & Fans")));
+
+        candidates.Should().ContainSingle().Which.Confident.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_sing_along_is_audio_only_and_ranked_below_the_plain_video()
+    {
+        var innertube = Searching(
+            Official("AAAAAAAAAAA", "Some Things Never Change", "Kristen Bell"),
+            Official("BBBBBBBBBBB", "Some Things Never Change", "Kristen Bell"));
+
+        var candidates = await FindAsync(
+            Song("Some Things Never Change", "Kristen Bell"),
+            innertube,
+            Real(
+                ("AAAAAAAAAAA", "Some Things Never Change (From \"Frozen 2\"/Sing-Along)", "Kristen Bell"),
+                ("BBBBBBBBBBB", "Kristen Bell - Some Things Never Change (Official Video)", "Kristen Bell")));
+
+        var singAlong = candidates.Single(candidate => candidate.VideoId == "AAAAAAAAAAA");
+        singAlong.Confident.Should().BeFalse();
+        singAlong.Kind.Should().Be(MusicVideoCandidateKind.AudioOnly);
+        singAlong.TitledAsSong.Should().BeFalse();
+        candidates[0].VideoId.Should().Be("BBBBBBBBBBB");
+    }
+
+    [Theory]
+    [InlineData("Some Things Never Change", "Kristen Bell", "Some Things Never Change (From \"Frozen 2\"/Sing-Along)")]
+    [InlineData("When Will My Life Begin?", "Mandy Moore", "Mandy Moore - When Will My Life Begin? (From \"Tangled\"/Sing-Along)")]
+    [InlineData("How Far I'll Go", "Auli'i Cravalho", "How far I'll go (Reprise) - Persian")]
+    [InlineData("Wanna Have Good Times", "Justin Timberlake", "Trolls Wanna Have Good Times - Pop Trolls (Sub. Español)")]
+    [InlineData("Into the Unknown", "Panic! at the Disco", "Frozen II - Into the unknown - Brazilian Portuguese - Panic! at the disco version")]
+    [InlineData("Into the Unknown", "Panic! at the Disco", "Into the Unknown - Panic at the Disco (lower key)")]
+    [InlineData("London Bridge", "Fergie", "Fergie - London Bridge - So You Think You Can Dance")]
+    [InlineData("London Bridge", "Fergie", "London Bridge - Fergie | Akiva Brooks Choreography")]
+    public async Task The_real_other_versions_from_the_third_review_are_never_titled_or_confident(string song, string artist, string realTitle)
+    {
+        var innertube = Searching(Official("AAAAAAAAAAA", song, artist), Upload("BBBBBBBBBBB", realTitle, "Some Fan"));
+
+        var candidates = await FindAsync(Song(song, artist), innertube, Real(("AAAAAAAAAAA", realTitle, artist)));
+
+        candidates.Should().OnlyContain(candidate => !candidate.Confident && !candidate.TitledAsSong);
+    }
+
+    [Fact]
+    public async Task The_reprise_song_is_not_titled_by_the_full_songs_video()
+    {
+        var innertube = Searching(Official("AAAAAAAAAAA", "When Will My Life Begin", "Mandy Moore", 152_000));
+
+        var candidates = await FindAsync(
+            Song("When Will My Life Begin (reprise 1)", "Mandy Moore", 63_000),
+            innertube,
+            Real(("AAAAAAAAAAA", "Mandy Moore - When Will My Life Begin? (From \"Tangled\")", "Mandy Moore")));
+
+        var candidate = candidates.Should().ContainSingle().Subject;
+        candidate.Confident.Should().BeFalse();
+        candidate.TitledAsSong.Should().BeFalse();
+    }
 }

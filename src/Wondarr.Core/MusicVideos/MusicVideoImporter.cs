@@ -199,6 +199,20 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
             throw new MusicVideoImportException(held);
         }
 
+        // The very same video again (the "download again" of a low-quality copy): ask first whether YouTube has anything
+        // better under the same format rule. If not, the file stays and the row remembers the answer.
+        if (wanted.Replacing
+            && wanted.Row is { Height: { } filedHeight } filedRow
+            && string.Equals(filedRow.YouTubeVideoId, videoId, StringComparison.Ordinal))
+        {
+            var outcome = await CheckForBetterCopyAsync(songId, videoId, filedHeight, options, cancellationToken).ConfigureAwait(false);
+
+            if (outcome is not null)
+            {
+                return prefix + outcome;
+            }
+        }
+
         MusicVideoDownload download;
 
         try
@@ -229,6 +243,54 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         {
             _downloader.Discard(download);
         }
+    }
+
+    /// <summary>
+    /// Asks the downloader for the best picture height YouTube can give for the video, and records it on the row. Returns the
+    /// message that ends the command when there is nothing better than the filed copy, or <see langword="null"/> to go on
+    /// with the download (a better copy, or no answer about the height).
+    /// </summary>
+    private async Task<string?> CheckForBetterCopyAsync(long songId, string videoId, int filedHeight, MusicVideoOptions options, CancellationToken cancellationToken)
+    {
+        int? best;
+
+        try
+        {
+            best = await _downloader.BestHeightAsync(videoId, options.MaxHeight, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            var reason = $"The check for a better copy failed: {exception.Message}";
+            await FailAsync(songId, videoId, fresh: false, reason, blocklist: false).ConfigureAwait(false);
+
+            throw new MusicVideoImportException(reason);
+        }
+
+        if (best is not { } height)
+        {
+            return null;
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        await _database.MusicVideos
+            .Where(video => video.SongId == songId && video.YouTubeVideoId == videoId && video.Status == MusicVideoStatus.Present)
+            .ExecuteUpdateAsync(
+                set => set
+                    .SetProperty(video => video.BestAvailableHeight, height)
+                    .SetProperty(video => video.BestAvailableCheckedAt, now)
+                    .SetProperty(video => video.UpdatedAt, now),
+                CancellationToken.None)
+            .ConfigureAwait(false);
+
+        if (height > filedHeight)
+        {
+            return null;
+        }
+
+        LogNoBetterCopy(_logger, videoId, songId, height);
+
+        return string.Create(CultureInfo.InvariantCulture, $"YouTube has no better copy than {height}p; the video was kept.");
     }
 
     private async Task MarkDownloadingAsync(long songId, CancellationToken cancellationToken)
@@ -354,6 +416,8 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         row.FailureReason = null;
         row.ReplaceFailureReason = null;
         row.ReplaceFailedAt = null;
+        row.BestAvailableHeight = null;
+        row.BestAvailableCheckedAt = null;
 
         // A found file that this download replaced is not the song's any more. It is in the recycle bin, so its row is
         // deleted; one that could not be recycled stays where it lay, for the person to
@@ -877,6 +941,9 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
     private sealed record FailedHistoryData(string YouTubeVideoId, string Reason, bool Replacement);
 
     private sealed record ImportedHistoryData(string YouTubeVideoId, string FoundBy, string Path, IReadOnlyList<string> RecycledPaths);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "YouTube has no better copy of the music video {YouTubeVideoId} of song {SongId} than {Height}p; it was not downloaded again")]
+    private static partial void LogNoBetterCopy(ILogger logger, string youTubeVideoId, long songId, int height);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Filed the music video {YouTubeVideoId} of song {SongId} at {Path}")]
     private static partial void LogFiled(ILogger logger, string youTubeVideoId, long songId, string path);

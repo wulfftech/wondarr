@@ -76,7 +76,10 @@ public static class ServiceCollectionExtensions
         // Every yt-dlp call asks IYtDlpBinary which binary to run: Wondarr's own updated copy, the bundled one or
         // the user's. The daily UpdateYtDlp task keeps the copy current.
         services.TryAddSingleton<IExecutableLocator, PathExecutableLocator>();
+        // What the last update check found is kept in the setting table, so a restart does not forget it.
+        services.AddSingleton<IYtDlpUpdateStore, SettingsYtDlpUpdateStore>();
         services.AddSingleton<IYtDlpBinary, YtDlpBinary>();
+        services.AddHostedService<YtDlpOverdueUpdateCheck>();
         services.AddScoped<ICommandHandler, UpdateYtDlpCommandHandler>();
         services.AddSingleton<IScheduledTaskSource, YtDlpScheduledTasks>();
 
@@ -88,6 +91,11 @@ public static class ServiceCollectionExtensions
         // of the two Add calls came first. Scoped, because the finder takes the typed InnerTube client.
         services.Replace(ServiceDescriptor.Scoped<IMusicVideoFinder, YouTubeMusicVideoFinder>());
         services.Replace(ServiceDescriptor.Scoped<IMusicVideoDownloader, YtDlpMusicVideoDownloader>());
+
+        // The scan fills the titles of videos downloaded before the title was kept from oEmbed; without a YouTube source
+        // nothing registers the backfill and the scan leaves them empty.
+        services.AddScoped<IMusicVideoTitleSource, OEmbedMusicVideoTitleSource>();
+        services.AddScoped<IMusicVideoTitleBackfill, MusicVideoTitleBackfill>();
 
         // The provider is a singleton, so the ISRC reader opens its own scope per call.
         services.AddSingleton<ISongIsrcSource, SongIsrcSource>();

@@ -54,7 +54,8 @@ public enum MusicVideoQueueOutcome
 /// <summary>The outcome of queueing a download, and the command that will run it.</summary>
 /// <param name="Outcome">What happened.</param>
 /// <param name="CommandId">The queued command, when <paramref name="Outcome"/> is <see cref="MusicVideoQueueOutcome.Queued"/>.</param>
-public sealed record MusicVideoQueueResult(MusicVideoQueueOutcome Outcome, long? CommandId = null);
+/// <param name="AheadInQueue">How many other <c>MusicVideoDownload</c> commands are queued or running, when it was queued; 0 means this one starts at once.</param>
+public sealed record MusicVideoQueueResult(MusicVideoQueueOutcome Outcome, long? CommandId = null, int AheadInQueue = 0);
 
 /// <summary>Finds a song's music video and queues its download (ADR-0014).</summary>
 public interface IMusicVideoSearchService
@@ -344,7 +345,10 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            return new MusicVideoQueueResult(MusicVideoQueueOutcome.Queued, command.Id);
+            var ahead = (await ActiveDownloads.ListAsync(_database, cancellationToken).ConfigureAwait(false))
+                .Count(download => download.CommandId != command.Id);
+
+            return new MusicVideoQueueResult(MusicVideoQueueOutcome.Queued, command.Id, ahead);
         }
         catch
         {
@@ -460,34 +464,55 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
         && sqlite.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase);
 }
 
-/// <summary>Whether a <c>MusicVideoDownload</c> command for a song is queued or running.</summary>
+/// <summary>A <c>MusicVideoDownload</c> command that is queued or running.</summary>
+/// <param name="CommandId">The command.</param>
+/// <param name="Status">Queued or started.</param>
+/// <param name="Body">What it downloads, for which song.</param>
+internal sealed record ActiveDownload(long CommandId, CommandStatus Status, MusicVideoCommandBodies.Download Body);
+
+/// <summary>The <c>MusicVideoDownload</c> commands that are queued or running.</summary>
 internal static class ActiveDownloads
 {
-    /// <summary>Asks the command table.</summary>
+    /// <summary>Every queued or running download command; one whose body cannot be read is left out.</summary>
     /// <param name="database">The database.</param>
-    /// <param name="songId">The song.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
-    public static async Task<bool> ExistsAsync(WondarrDbContext database, long songId, CancellationToken cancellationToken)
+    public static async Task<IReadOnlyList<ActiveDownload>> ListAsync(WondarrDbContext database, CancellationToken cancellationToken)
     {
-        var bodies = await database.Commands
+        var rows = await database.Commands
             .AsNoTracking()
             .Where(command => command.Name == MusicVideoDownloadCommandHandler.CommandName
                 && (command.Status == CommandStatus.Queued || command.Status == CommandStatus.Started))
-            .Select(command => command.Body)
+            .Select(command => new { command.Id, command.Status, command.Body })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return bodies.Any(body =>
+        var active = new List<ActiveDownload>(rows.Count);
+
+        foreach (var row in rows)
         {
             try
             {
-                return body is not null
-                    && MusicVideoCommandBodies.Read<MusicVideoCommandBodies.Download>(body, MusicVideoDownloadCommandHandler.CommandName).SongId == songId;
+                if (row.Body is not null)
+                {
+                    active.Add(new ActiveDownload(
+                        row.Id,
+                        row.Status,
+                        MusicVideoCommandBodies.Read<MusicVideoCommandBodies.Download>(row.Body, MusicVideoDownloadCommandHandler.CommandName)));
+                }
             }
             catch (ArgumentException)
             {
-                return false;
+                // A body that cannot be read names no song.
             }
-        });
+        }
+
+        return active;
     }
+
+    /// <summary>Asks the command table whether a download for the song is queued or running.</summary>
+    /// <param name="database">The database.</param>
+    /// <param name="songId">The song.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    public static async Task<bool> ExistsAsync(WondarrDbContext database, long songId, CancellationToken cancellationToken) =>
+        (await ListAsync(database, cancellationToken).ConfigureAwait(false)).Any(download => download.Body.SongId == songId);
 }

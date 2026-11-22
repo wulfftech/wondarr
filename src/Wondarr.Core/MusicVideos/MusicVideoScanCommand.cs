@@ -24,17 +24,20 @@ public sealed partial class MusicVideoScanCommandHandler : ICommandHandler
     private readonly IMusicVideoIdentifier _identifier;
     private readonly IOptionsMonitor<MusicVideoOptions> _options;
     private readonly ILogger<MusicVideoScanCommandHandler> _logger;
+    private readonly IMusicVideoTitleBackfill? _titles;
 
     /// <summary>Initialises a new instance of the <see cref="MusicVideoScanCommandHandler"/> class.</summary>
     /// <param name="scanner">Walks the video root.</param>
     /// <param name="identifier">Identifies what the walk found.</param>
     /// <param name="options">The <c>music_videos</c> settings, for the on/off switch.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="titles">Fills the titles of videos downloaded before the title was kept; none leaves them empty.</param>
     public MusicVideoScanCommandHandler(
         IMusicVideoFileScanner scanner,
         IMusicVideoIdentifier identifier,
         IOptionsMonitor<MusicVideoOptions> options,
-        ILogger<MusicVideoScanCommandHandler> logger)
+        ILogger<MusicVideoScanCommandHandler> logger,
+        IMusicVideoTitleBackfill? titles = null)
     {
         ArgumentNullException.ThrowIfNull(scanner);
         ArgumentNullException.ThrowIfNull(identifier);
@@ -45,6 +48,7 @@ public sealed partial class MusicVideoScanCommandHandler : ICommandHandler
         _identifier = identifier;
         _options = options;
         _logger = logger;
+        _titles = titles;
     }
 
     /// <inheritdoc />
@@ -100,13 +104,31 @@ public sealed partial class MusicVideoScanCommandHandler : ICommandHandler
             LogIdentifyFailed(_logger, exception);
         }
 
+        // Videos downloaded before the title was kept get it from YouTube, a few a scan. A failure here costs nothing else.
+        var titled = 0;
+
+        if (_titles is not null)
+        {
+            try
+            {
+                titled = await _titles.FillMissingAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                LogTitlesFailed(_logger, exception);
+            }
+        }
+
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"{scan.Seen} videos, {scan.Added} added, {scan.Changed} changed, {scan.Unchanged} unchanged, {scan.Missing} missing, {scan.Released} released, {identified.Adopted} adopted, {identified.Ambiguous} ambiguous, {identified.Unmatched} unmatched{(scan.MountProblem ? "; too many videos are missing at once, so none was released" : string.Empty)}");
+            $"{scan.Seen} videos, {scan.Added} added, {scan.Changed} changed, {scan.Unchanged} unchanged, {scan.Missing} missing, {scan.Released} released, {identified.Adopted} adopted, {identified.Ambiguous} ambiguous, {identified.Unmatched} unmatched{(scan.MountProblem ? "; too many videos are missing at once, so none was released" : string.Empty)}{(titled > 0 ? $"; {titled} video title(s) filled" : string.Empty)}");
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The video folder was not scanned: {Reason}")]
     private static partial void LogUnavailable(ILogger logger, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Filling the missing music video titles failed; the next scan tries again")]
+    private static partial void LogTitlesFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Identifying the videos of the video folder failed; the next scan tries again")]
     private static partial void LogIdentifyFailed(ILogger logger, Exception exception);

@@ -35,6 +35,19 @@ public interface IYtDlpRunner
         CancellationToken cancellationToken,
         Func<Task>? started = null);
 
+    /// <summary>
+    /// Asks yt-dlp for the height of the picture it would download under the same format rule as
+    /// <see cref="DownloadVideoAsync"/> (<c>--skip-download --print height</c>): nothing is downloaded. It takes the same
+    /// one-at-a-time gate.
+    /// </summary>
+    /// <param name="videoId">The YouTube video id.</param>
+    /// <param name="maxHeight">The tallest picture to take, in pixels, or <see langword="null"/> for no cap.</param>
+    /// <param name="cancellationToken">Cancels the wait and the run.</param>
+    /// <returns>The height in pixels, or <see langword="null"/> when yt-dlp printed none.</returns>
+    /// <exception cref="YtDlpException">The run failed; the kind carries the classification.</exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    Task<int?> ReadBestHeightAsync(string videoId, int? maxHeight, CancellationToken cancellationToken);
+
     /// <summary>Probes a video's formats (<c>yt-dlp -F</c>): the health probe's check.</summary>
     /// <param name="videoId">The YouTube Music video id.</param>
     /// <param name="cancellationToken">Cancels the run.</param>

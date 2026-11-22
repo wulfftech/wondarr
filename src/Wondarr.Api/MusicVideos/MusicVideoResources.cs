@@ -127,6 +127,9 @@ public sealed record MusicVideoSettingsUpdateResource(
 /// <param name="ReplaceFailedAt">The UTC instant the last replacement failed, or <see langword="null"/>.</param>
 /// <param name="CreatedAt">The UTC instant the row was created.</param>
 /// <param name="UpdatedAt">The UTC instant the row last changed.</param>
+/// <param name="BestAvailableHeight">The tallest picture YouTube could give for this video when last asked, or <see langword="null"/> when it was never checked.</param>
+/// <param name="BestAvailableCheckedAt">The UTC instant <paramref name="BestAvailableHeight"/> was found, or <see langword="null"/>.</param>
+/// <param name="PendingReplacement">The download that is on its way to replace the filed video, or <see langword="null"/> when none is.</param>
 public sealed record MusicVideoResource(
     long Id,
     long SongId,
@@ -145,11 +148,15 @@ public sealed record MusicVideoResource(
     string? ReplaceFailureReason,
     DateTime? ReplaceFailedAt,
     DateTime CreatedAt,
-    DateTime UpdatedAt)
+    DateTime UpdatedAt,
+    int? BestAvailableHeight = null,
+    DateTime? BestAvailableCheckedAt = null,
+    MusicVideoPendingReplacementResource? PendingReplacement = null)
 {
     /// <summary>Maps a row.</summary>
     /// <param name="video">The row to map.</param>
-    public static MusicVideoResource From(MusicVideo video)
+    /// <param name="pending">The download on its way to replace the filed video, or <see langword="null"/>.</param>
+    public static MusicVideoResource From(MusicVideo video, MusicVideoPendingReplacement? pending = null)
     {
         ArgumentNullException.ThrowIfNull(video);
 
@@ -171,9 +178,18 @@ public sealed record MusicVideoResource(
             video.ReplaceFailureReason,
             video.ReplaceFailedAt,
             video.CreatedAt,
-            video.UpdatedAt);
+            video.UpdatedAt,
+            video.BestAvailableHeight,
+            video.BestAvailableCheckedAt,
+            pending is null ? null : new MusicVideoPendingReplacementResource(pending.YouTubeVideoId, pending.VideoTitle, pending.Status));
     }
 }
+
+/// <summary>A download that is on its way to replace a song's filed music video.</summary>
+/// <param name="YouTubeVideoId">The video being downloaded.</param>
+/// <param name="VideoTitle">Its title, or <see langword="null"/> when it is not known.</param>
+/// <param name="Status">Whether the download is still queued behind another, or running.</param>
+public sealed record MusicVideoPendingReplacementResource(string YouTubeVideoId, string? VideoTitle, MusicVideoPendingStatus Status);
 
 /// <summary>What removing a song's music video did.</summary>
 /// <param name="Path">Where the video file was, or <see langword="null"/> when the row had no file yet.</param>
@@ -232,11 +248,13 @@ public sealed record MusicVideoCandidateResource(
 /// <param name="Candidates">The candidates, best first.</param>
 /// <param name="Partial">Whether MusicBrainz did not answer, so the candidates are YouTube search results only.</param>
 /// <param name="Status">Where the queued download stands (queued, or downloading once it has started); <see langword="null"/> when none was queued.</param>
+/// <param name="AheadInQueue">How many other music video downloads are queued or running, when a download was queued; 0 means it starts at once.</param>
 public sealed record MusicVideoSearchResultResource(
     bool Queued,
     IReadOnlyList<MusicVideoCandidateResource> Candidates,
     bool Partial,
-    MusicVideoStatus? Status = null);
+    MusicVideoStatus? Status = null,
+    int AheadInQueue = 0);
 
 /// <summary>A manual pick: the video to download for a song.</summary>
 /// <param name="YouTubeVideoId">The YouTube video id, or a link to the video.</param>
@@ -246,7 +264,8 @@ public sealed record MusicVideoGrabResource(string? YouTubeVideoId, string? Vide
 /// <summary>A queued download.</summary>
 /// <param name="CommandId">The queued <c>MusicVideoDownload</c> command.</param>
 /// <param name="Status">Where the download stands: queued while it waits for the shared yt-dlp gate, downloading once it has started.</param>
-public sealed record MusicVideoGrabAcceptedResource(long CommandId, MusicVideoStatus Status);
+/// <param name="AheadInQueue">How many other music video downloads are queued or running; 0 means this one starts at once.</param>
+public sealed record MusicVideoGrabAcceptedResource(long CommandId, MusicVideoStatus Status, int AheadInQueue = 0);
 
 /// <summary>Songs to search music videos for, confident matches only.</summary>
 /// <param name="SongIds">The songs; at most 200.</param>
