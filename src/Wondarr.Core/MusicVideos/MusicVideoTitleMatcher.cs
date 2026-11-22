@@ -65,7 +65,7 @@ public static class MusicVideoTitleMatcher
     /// which reads a named mix ("Rah Mix") as a remix and "Radio Mix" or "Original Mix" as neutral.
     /// </summary>
     private static readonly Regex OtherVersionWords = new(
-        @"\b(?:live|remix|cover(?:ed)?|reaction|reacts?|instrumental|karaoke|acoustic|acapella|a\s+cappella|vocals?\s+only|isolated\s+vocals?|demo|slowed|reverb|sped\s+up|nightcore|8d|bass\s+boosted|chipmunk|pitch(?:ed|\s+shifted)|\d+\s?hz|\d+\s+hours?|loop|festival|festivel|fest|concert|live\s+(?:at|from)|in\s+concert|unplugged|sessions?|bbc|mtv|reprise|mash[\s-]?up|mega\s?mix|(?:american\s+)?sign\s+language|asl|lower\s+key|higher\s+key|key\s+change|transposed|(?:fe)?male\s+version|choreography|dance\s+cover|dance\s+tutorial|tutorial|lessons?|so\s+you\s+think\s+you\s+can\s+dance)\b",
+        @"\b(?:live|remix|cover(?:ed)?|reaction|reacts?|instrumental|karaoke|acoustic|acapella|a\s+cappella|vocals?\s+only|isolated\s+vocals?|demo|slowed|reverb|sped\s+up|nightcore|8d|bass\s+boosted|chipmunk|pitch(?:ed|\s+shifted)|\d+\s?hz|\d+\s+hours?|loop|festival|festivel|fest|concert|live\s+(?:at|from)|in\s+concert|unplugged|sessions?|bbc|mtv|reprise|mash[\s-]?up|mega\s?mix|(?:american\s+)?sign\s+language|asl|lower\s+key|higher\s+key|key\s+change|transposed|(?:fe)?male\s+(?:version|voice)|(?:deep|deeper|low|high|higher)\s+voice|(?:lower|higher)\s+pitch|pitch\s+(?:down|up)|choreography|dance\s+cover|dance\s+tutorial|tutorial|lessons?|so\s+you\s+think\s+you\s+can\s+dance)\b",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
@@ -188,6 +188,21 @@ public static class MusicVideoTitleMatcher
     private static readonly Regex QuotedTitleRegex = new(
         @"^(?<artist>[^""“”«»]+?)\s+[""“«](?<title>[^""“”«»]+)[""”»]",
         RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>
+    /// Words that a cover act's name never holds: a version, lyric, language, decoration, soundtrack, year or noise word,
+    /// or a featuring credit.
+    /// </summary>
+    private static readonly Regex NotANameWords = new(
+        @"\b(?:official|video|music|hd|hq|4k|uhd|remaster(?:ed)?|soundtrack|ost|score|from|feat|ft|featuring|version|ver|edit|mix|cut|audio|lyrics?|(?:19|20)\d{2})\b|[\(\)\[\]""“”]",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>What joins the names in an artist credit: <c>A &amp; B</c>, <c>A, B</c>, <c>A feat. B</c>.</summary>
+    private static readonly Regex CreditParts = new(
+        @"\s*(?:&|,|/|\band\b|\bfeat\.?|\bft\.?|\bfeaturing\b|\bwith\b|\bx\b)\s*",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
     /// <summary>A bracketed group: round or square, with no bracket inside it.</summary>
@@ -558,7 +573,11 @@ public static class MusicVideoTitleMatcher
     /// <param name="songTitle">The song's title.</param>
     /// <param name="songArtists">The song's artists.</param>
     /// <param name="videoTitle">The video's title, decorations and all.</param>
-    public static Evaluation Evaluate(string songTitle, IReadOnlyList<string> songArtists, string videoTitle)
+    /// <param name="isUserUpload">
+    /// Whether the video is a user upload and not an official video, which is the only kind a cover by another named act
+    /// ("Song - Some Choir") is read from.
+    /// </param>
+    public static Evaluation Evaluate(string songTitle, IReadOnlyList<string> songArtists, string videoTitle, bool isUserUpload = true)
     {
         ArgumentNullException.ThrowIfNull(songTitle);
         ArgumentNullException.ThrowIfNull(songArtists);
@@ -574,7 +593,9 @@ public static class MusicVideoTitleMatcher
 
         var otherVersion = IsOtherVersion(songTitle, videoTitle, songArtists);
         var plain = !IsNotAMusicVideo(songTitle, videoTitle) && !otherVersion;
+        var cover = plain && isUserUpload && IsCoverByOtherAct(songTitle, songArtists, videoTitle);
         var titled = plain
+            && !cover
             && similarity >= DecisionEngine.TitleFloor
             && IsStrictTitle(songTitle, videoTitle, remaining);
 
@@ -583,7 +604,78 @@ public static class MusicVideoTitleMatcher
             similarity,
             titled,
             otherVersion,
-            plain && !titled && IsTitledWithAlternateBracket(songTitle, videoTitle, remaining));
+            plain && !cover && !titled && IsTitledWithAlternateBracket(songTitle, videoTitle, remaining));
+    }
+
+    /// <summary>
+    /// Whether an upload's title is "Song - Name" or "Name - Song" where the name is not one of the song's artists and none
+    /// of them is named anywhere in the title: a cover by that act. The name is one to four words with no version, lyric,
+    /// language, decoration, soundtrack, year or noise word. The "Name - Song" form needs an artist of three or more letters,
+    /// because uploaders often put the artist first.
+    /// </summary>
+    private static bool IsCoverByOtherAct(string songTitle, IReadOnlyList<string> songArtists, string videoTitle)
+    {
+        var stripped = Whitespace.Replace(Strip(videoTitle, songTitle).Title, " ").Trim();
+        var parts = TitleParts(stripped);
+
+        if (parts.Count != 2 || NamesAnyArtistAnywhere(stripped, songArtists))
+        {
+            return false;
+        }
+
+        var variants = SongVariants(SearchTitle(songTitle));
+
+        if (variants.Any(variant => StrictlyEqual(variant, parts[0])) && IsOtherName(parts[1], songArtists))
+        {
+            return true;
+        }
+
+        return songArtists.Any(artist => artist.Count(char.IsLetter) >= 3)
+            && variants.Any(variant => StrictlyEqual(variant, parts[1]))
+            && IsOtherName(parts[0], songArtists);
+    }
+
+    private static bool IsOtherName(string name, IReadOnlyList<string> songArtists)
+    {
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        return words.Length is >= 1 and <= 4
+            && !NotANameWords.IsMatch(name)
+            && !OtherVersionWords.IsMatch(name)
+            && !LanguageWords.IsMatch(name)
+            && !NotAVideoWords.IsMatch(name)
+            && !CutWords.IsMatch(name)
+            && !TrackMarkers.IsMatch(name)
+            && !VersusWord.IsMatch(name)
+            && !Decorations.Contains(name, StringComparer.OrdinalIgnoreCase)
+            && (VersionFlagParser.Parse(name, disambiguation: name).Flags & VersionFlagNames.HardFlags) == VersionFlags.None
+            && !ArtistEvidence.NamesAnyOf(name, songArtists);
+    }
+
+    /// <summary>Whether any of the artists, or one of the names in a credit, is named as whole words anywhere in the title.</summary>
+    private static bool NamesAnyArtistAnywhere(string title, IReadOnlyList<string> songArtists)
+    {
+        var text = " " + TextMatching.Normalize(title) + " ";
+
+        foreach (var artist in songArtists)
+        {
+            foreach (var name in CreditParts.Split(artist).Append(artist))
+            {
+                var key = TextMatching.Normalize(name);
+
+                if (key.StartsWith("the ", StringComparison.Ordinal))
+                {
+                    key = key[4..];
+                }
+
+                if (key.Length > 0 && text.Contains(" " + key + " ", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
