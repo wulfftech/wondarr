@@ -751,4 +751,97 @@ public sealed class MusicVideoTitleMatcherTests
     {
         MusicVideoTitleMatcher.Strip("Song (From \"Frozen\"/From the Movie Frozen)").Title.Should().Be("Song");
     }
+
+    [Theory]
+    [InlineData("DEEP VOICE - FROZEN 2 - Lost in the Woods - Jonathan Groff")]
+    [InlineData("Lost in the Woods - Jonathan Groff (Deeper Voice)")]
+    [InlineData("Lost in the Woods - Jonathan Groff (Low Voice)")]
+    [InlineData("Lost in the Woods - Jonathan Groff (High Voice)")]
+    [InlineData("Lost in the Woods - Jonathan Groff (Higher Voice)")]
+    [InlineData("Lost in the Woods - Jonathan Groff (Lower Pitch)")]
+    [InlineData("Lost in the Woods - Jonathan Groff (Higher Pitch)")]
+    [InlineData("Lost in the Woods - Jonathan Groff (pitch down)")]
+    [InlineData("Lost in the Woods - Jonathan Groff (pitch up)")]
+    [InlineData("Lost in the Woods - Jonathan Groff (Male Voice)")]
+    [InlineData("Lost in the Woods - Jonathan Groff (Female Voice)")]
+    public void A_pitched_voice_upload_is_not_titled_as_the_song(string videoTitle)
+    {
+        var evaluation = MusicVideoTitleMatcher.Evaluate("Lost in the Woods", ["Jonathan Groff"], videoTitle);
+
+        evaluation.IsOtherVersion.Should().BeTrue();
+        evaluation.IsTitledAsTheSong.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_voice_word_the_songs_own_title_has_is_not_a_version()
+    {
+        MusicVideoTitleMatcher.IsOtherVersion("Deep Voice", "Artist - Deep Voice (Official Video)", ["Artist"]).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_cover_by_another_named_act_is_not_titled_but_keeps_its_similarity()
+    {
+        var evaluation = MusicVideoTitleMatcher.Evaluate("Vuelie", ["Tim Davies"], "Vuelie - Clarapella (From Frozen)");
+
+        evaluation.IsTitledAsTheSong.Should().BeFalse();
+        evaluation.TitleSimilarity.Should().BeGreaterThanOrEqualTo(DecisionEngine.TitleFloor);
+    }
+
+    [Fact]
+    public void A_name_first_cover_is_not_titled_when_the_song_has_a_real_artist()
+    {
+        MusicVideoTitleMatcher.Evaluate("Vuelie", ["Tim Davies"], "Clarapella - Vuelie").IsTitledAsTheSong.Should().BeFalse();
+        MusicVideoTitleMatcher.Evaluate("Vuelie", ["Tim Davies"], "Clarapella - Vuelie").TitleSimilarity.Should().BeGreaterThanOrEqualTo(DecisionEngine.TitleFloor);
+        MusicVideoTitleMatcher.Evaluate("Vuelie", ["AB"], "Clarapella - Vuelie").IsTitledAsTheSong.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Vuelie - Tim Davies")]
+    [InlineData("Tim Davies - Vuelie")]
+    [InlineData("Tim Davies - Vuelie (From Frozen)")]
+    [InlineData("Vuelie")]
+    public void A_title_that_names_the_songs_artist_or_none_stays_titled(string videoTitle)
+    {
+        MusicVideoTitleMatcher.Evaluate("Vuelie", ["Tim Davies"], videoTitle).IsTitledAsTheSong.Should().BeTrue();
+    }
+
+    [Fact]
+    public void An_upload_with_no_dash_stays_titled()
+    {
+        MusicVideoTitleMatcher.Evaluate("Hello World", ["The Saddle Club"], "Hello World").IsTitledAsTheSong.Should().BeTrue();
+    }
+
+    [Fact]
+    public void An_official_video_with_another_name_after_the_dash_is_unaffected()
+    {
+        MusicVideoTitleMatcher.Evaluate("Vuelie", ["Tim Davies"], "Vuelie - Someone", isUserUpload: false).IsTitledAsTheSong.Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate("Vuelie", ["Tim Davies"], "Vuelie - Someone").IsTitledAsTheSong.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Vuelie - Official Video")]
+    [InlineData("Vuelie - Live")]
+    [InlineData("Vuelie - Español")]
+    [InlineData("Vuelie - Remastered 2019")]
+    [InlineData("Vuelie - From Frozen")]
+    [InlineData("Vuelie - One Two Three Four Five")]
+    public void A_dash_part_that_is_not_a_name_does_not_make_a_cover(string videoTitle)
+    {
+        MusicVideoTitleMatcher.Evaluate("Vuelie", ["Tim Davies"], videoTitle).IsOtherVersion.Should().Be(
+            MusicVideoTitleMatcher.IsOtherVersion("Vuelie", videoTitle, ["Tim Davies"]));
+        MusicVideoTitleMatcher.Evaluate("Vuelie", ["Tim Davies"], videoTitle, isUserUpload: false).IsTitledAsTheSong
+            .Should().Be(MusicVideoTitleMatcher.Evaluate("Vuelie", ["Tim Davies"], videoTitle).IsTitledAsTheSong);
+    }
+
+    [Theory]
+    [InlineData("Hello World", "The Saddle Club", "The Saddle Club - Hello World (Music Video) (1080p Remaster by aTunes)")]
+    [InlineData("Hello World", "The Saddle Club", "Hello World - The Saddle Club")]
+    [InlineData("When it Rains", "Paramore", "Paramore - When it Rains")]
+    [InlineData("When it Rains", "Paramore", "When it Rains - Paramore (Official Video)")]
+    [InlineData("Breakfast At Sweethearts (1979)", "Cold Chisel", "Cold Chisel - Breakfast At Sweethearts (1979)")]
+    [InlineData("Breakfast At Sweethearts (1979)", "Cold Chisel", "Cold Chisel - Breakfast At Sweethearts")]
+    public void Artist_and_title_uploads_stay_titled(string song, string artist, string videoTitle)
+    {
+        MusicVideoTitleMatcher.Evaluate(song, [artist], videoTitle).IsTitledAsTheSong.Should().BeTrue();
+    }
 }

@@ -239,7 +239,7 @@ public sealed partial class YouTubeMusicVideoFinder : IMusicVideoFinder
 
             // A user upload's artist is the uploader's channel, so the artist is also looked for in the video's own
             // title ("Artist - Title", "Title - Artist", Artist "Title"); the title is then judged without it.
-            var evaluation = MusicVideoTitleMatcher.Evaluate(query.Title, query.Artists, result.Title);
+            var evaluation = MusicVideoTitleMatcher.Evaluate(query.Title, query.Artists, result.Title, kind != MusicVideoCandidateKind.OfficialVideo);
             var credited = result.Artists.Any(artist => ArtistEvidence.NamesAnyOf(artist, query.Artists));
 
             drafts.Add(new Draft(result, videoId, kind, result.Title, evaluation, credited, ArtistChannel: false, Lookup.NotAsked));
@@ -383,7 +383,7 @@ public sealed partial class YouTubeMusicVideoFinder : IMusicVideoFinder
             return draft with { Lookup = Lookup.Failed };
         }
 
-        var evaluation = MusicVideoTitleMatcher.Evaluate(query.Title, query.Artists, answer.Title);
+        var evaluation = MusicVideoTitleMatcher.Evaluate(query.Title, query.Artists, answer.Title, draft.Kind != MusicVideoCandidateKind.OfficialVideo);
         var audioOnly = MusicVideoTitleMatcher.IsAudioOnly(query.Title, answer.Title);
         var artistChannel = MusicVideoTitleMatcher.ChannelNamesArtist(answer.AuthorName, query.Artists);
 
