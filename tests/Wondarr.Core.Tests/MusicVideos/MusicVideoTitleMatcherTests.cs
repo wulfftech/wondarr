@@ -772,6 +772,26 @@ public sealed class MusicVideoTitleMatcherTests
         evaluation.IsTitledAsTheSong.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("Vuelie - song by Cantus and Tim Davies. Perform by TCHS choir")]
+    [InlineData("Vuelie - Tim Davies (performed by the WCHS Choirs)")]
+    [InlineData("Vuelie - Tim Davies - Middle School Choir")]
+    [InlineData("Vuelie - Tim Davies (Chorale)")]
+    [InlineData("Vuelie - Tim Davies (Spring Recital)")]
+    public void A_performance_by_someone_else_is_not_titled_as_the_song(string videoTitle)
+    {
+        var evaluation = MusicVideoTitleMatcher.Evaluate("Vuelie", ["Tim Davies"], videoTitle);
+
+        evaluation.IsOtherVersion.Should().BeTrue();
+        evaluation.IsTitledAsTheSong.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_choir_word_in_the_song_title_is_not_another_version()
+    {
+        MusicVideoTitleMatcher.Evaluate("Choir Song", ["Tim Davies"], "Tim Davies - Choir Song").IsTitledAsTheSong.Should().BeTrue();
+    }
+
     [Fact]
     public void A_voice_word_the_songs_own_title_has_is_not_a_version()
     {
