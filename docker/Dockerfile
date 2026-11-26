@@ -9,7 +9,7 @@
 # ---------------------------------------------------------------------------------------------
 # 1. frontend — built once on the build platform; the output is platform-independent.
 # ---------------------------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS frontend
+FROM --platform=$BUILDPLATFORM node:25-bookworm-slim AS frontend
 
 # vite.config.ts resolves build.outDir to ../src/Wondarr.Api/wwwroot, so the repository layout
 # has to stay intact: /src is the repository root.
