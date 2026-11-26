@@ -144,6 +144,14 @@ public sealed class SmtpSender : ISmtpSender
                 string.Concat("the mail server refused the message (", ((int)exception.StatusCode).ToString(System.Globalization.CultureInfo.InvariantCulture), ")."),
                 exception);
         }
+        catch (SmtpServiceNotAuthenticatedException exception)
+        {
+            // MailKit 5 throws this for a 530 ("authentication required") where 4.x threw an SmtpCommandException;
+            // it is no longer one, so it is mapped here to keep the wording and the status code.
+            throw new NotificationSendException(
+                string.Concat("the mail server refused the message (", ((int)exception.StatusCode).ToString(System.Globalization.CultureInfo.InvariantCulture), ")."),
+                exception);
+        }
         catch (Exception exception) when (exception is SocketException or IOException or ServiceNotConnectedException or ProtocolException or TimeoutException)
         {
             throw new NotificationSendException("could not reach the mail server; check the host and port.", exception);

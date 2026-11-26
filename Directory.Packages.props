@@ -6,8 +6,8 @@
 
   <ItemGroup Label="Runtime">
     <PackageVersion Include="EFCore.NamingConventions" Version="10.0.1" />
-    <PackageVersion Include="MailKit" Version="4.18.2" />
-    <!-- MailKit brings Pkcs 10.0.0 in transitively; pinned for CVE-2026-70162 and CVE-2026-84008. -->
+    <PackageVersion Include="MailKit" Version="5.0.0" />
+    <!-- MailKit 4.x brought Pkcs 10.0.0 in transitively; 5.0 no longer does (it uses System.Formats.Asn1). Kept: Wondarr.Core references it directly, pinned for CVE-2026-70162 and CVE-2026-84008. -->
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
     <PackageVersion Include="Scalar.AspNetCore" Version="3.0.0" />

@@ -24,7 +24,7 @@ public sealed class SmtpSenderTests
 
         await Sender(client).SendAsync(Endpoint, Message(), CancellationToken.None);
 
-        await client.Received(2).SendAsync(Arg.Any<MimeMessage>(), Arg.Any<CancellationToken>(), Arg.Any<ITransferProgress?>());
+        await client.Received(2).SendAsync(Arg.Any<ISendRequest>(), Arg.Any<CancellationToken>());
         _waits.Should().Equal(SmtpSender.RetryDelay);
     }
 
@@ -37,7 +37,7 @@ public sealed class SmtpSenderTests
 
         (await act.Should().ThrowAsync<NotificationSendException>())
             .WithMessage("the mail server refused the message (450).");
-        await client.Received(2).SendAsync(Arg.Any<MimeMessage>(), Arg.Any<CancellationToken>(), Arg.Any<ITransferProgress?>());
+        await client.Received(2).SendAsync(Arg.Any<ISendRequest>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -49,7 +49,24 @@ public sealed class SmtpSenderTests
 
         (await act.Should().ThrowAsync<NotificationSendException>())
             .WithMessage("the mail server refused the message (550).");
-        await client.Received(1).SendAsync(Arg.Any<MimeMessage>(), Arg.Any<CancellationToken>(), Arg.Any<ITransferProgress?>());
+        await client.Received(1).SendAsync(Arg.Any<ISendRequest>(), Arg.Any<CancellationToken>());
+        _waits.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_530_reply_is_reported_as_a_refusal_with_its_code()
+    {
+        var client = Substitute.For<ISmtpClient>();
+        client.SendAsync(Arg.Any<ISendRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromException<SendResult>(new SmtpServiceNotAuthenticatedException(
+                SmtpCommand.MailFrom,
+                new SmtpResponse(SmtpStatusCode.AuthenticationRequired, "5.7.0 Authentication required"))));
+
+        var act = () => Sender(client).SendAsync(Endpoint, Message(), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<NotificationSendException>())
+            .WithMessage("the mail server refused the message (530).");
+        await client.Received(1).SendAsync(Arg.Any<ISendRequest>(), Arg.Any<CancellationToken>());
         _waits.Should().BeEmpty();
     }
 
@@ -60,19 +77,19 @@ public sealed class SmtpSenderTests
         return Task.CompletedTask;
     });
 
-    private static ISmtpClient Client(Func<Task<string>> first, Func<Task<string>> second)
+    private static ISmtpClient Client(Func<Task<SendResult>> first, Func<Task<SendResult>> second)
     {
         var client = Substitute.For<ISmtpClient>();
-        client.SendAsync(Arg.Any<MimeMessage>(), Arg.Any<CancellationToken>(), Arg.Any<ITransferProgress?>())
+        client.SendAsync(Arg.Any<ISendRequest>(), Arg.Any<CancellationToken>())
             .Returns(_ => first(), _ => second());
 
         return client;
     }
 
-    private static Func<Task<string>> Refused(SmtpStatusCode status) =>
-        () => Task.FromException<string>(new SmtpCommandException(SmtpErrorCode.MessageNotAccepted, status, "not now"));
+    private static Func<Task<SendResult>> Refused(SmtpStatusCode status) =>
+        () => Task.FromException<SendResult>(new SmtpCommandException(SmtpErrorCode.MessageNotAccepted, status, "not now"));
 
-    private static Func<Task<string>> Accepted() => () => Task.FromResult("2.0.0 OK");
+    private static Func<Task<SendResult>> Accepted() => () => Task.FromResult<SendResult>(new SmtpSendResult(SmtpStatusCode.Ok, "2.0.0 OK", [], []));
 
     private static MimeMessage Message()
     {
