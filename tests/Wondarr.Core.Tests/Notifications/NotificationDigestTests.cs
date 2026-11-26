@@ -443,7 +443,7 @@ public sealed class NotificationDigestTests : IAsyncDisposable
         _time.Advance(TimeSpan.FromMinutes(30));
         await digest.FlushDueAsync(Token);
 
-        await client.Received(1).SendAsync(Arg.Any<MimeKit.MimeMessage>(), Arg.Any<CancellationToken>(), Arg.Any<MailKit.ITransferProgress?>());
+        await client.Received(1).SendAsync(Arg.Any<MailKit.ISendRequest>(), Arg.Any<CancellationToken>());
         (await CountAsync(id)).Should().Be(0, "the message was accepted");
         _log.Warnings.Should().BeEmpty();
         _log.Errors.Should().BeEmpty();
