@@ -76,6 +76,24 @@ public sealed class LogFileReaderTests : IDisposable
         page.Records[3].Logger.Should().Be("Wondarr.Core.Tests.Logging.LogFileReaderTests");
     }
 
+    [Theory]
+    [InlineData("2026-11-27T21:05:00.3411329+08:00")]
+    [InlineData("2026-11-27T13:05:00.3411329Z")]
+    [InlineData("2026-11-27T08:05:00.3411329-05:00")]
+    public async Task Reads_the_timestamp_as_the_utc_instant_whatever_its_offset(string timestamp)
+    {
+        WriteFile(
+            "wondarr-20261127.json",
+            Base,
+            $"{{\"timestamp\":\"{timestamp}\",\"message\":\"Offset check\",\"props\":{{}}}}");
+
+        var page = await _reader.ReadEntriesAsync(new LogQuery(1, 10, null, null), CancellationToken.None);
+
+        page.Records.Should().HaveCount(1);
+        page.Records[0].Time.Kind.Should().Be(DateTimeKind.Utc);
+        page.Records[0].Time.Should().Be(new DateTime(2026, 11, 27, 13, 5, 0, DateTimeKind.Utc).AddTicks(3411329));
+    }
+
     [Fact]
     public async Task A_line_without_a_level_is_information()
     {

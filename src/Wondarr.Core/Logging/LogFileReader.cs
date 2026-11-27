@@ -125,7 +125,7 @@ public sealed class LogFileReader : ILogFileReader
             return null;
         }
 
-        // Serilog holds the current file open for writing (shared: true), so the read must share it.
+        // Serilog holds the current file open for writing, so the read must share it.
         return new FileStream(
             Path.Combine(_paths.LogsDir, name),
             FileMode.Open,
@@ -296,11 +296,14 @@ public sealed class LogFileReader : ILogFileReader
         }
     }
 
+    // The sink writes local time with its offset (2026-11-27T21:05:00+08:00). Reading it as a
+    // DateTimeOffset keeps that offset, so the UTC time is right whatever the server's time zone.
+    // TryGetDateTime converted it to the server's local clock, which was then labelled UTC (M-76).
     private static DateTime ReadTimestamp(JsonElement root) =>
         root.TryGetProperty("timestamp", out var timestamp)
             && timestamp.ValueKind == JsonValueKind.String
-            && timestamp.TryGetDateTime(out var parsed)
-        ? DateTime.SpecifyKind(parsed, DateTimeKind.Utc)
+            && timestamp.TryGetDateTimeOffset(out var parsed)
+        ? parsed.UtcDateTime
         : DateTime.MinValue;
 
     private static LogEventLevel ReadLevel(JsonElement root)
