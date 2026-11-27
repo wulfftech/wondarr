@@ -39,3 +39,8 @@ updates:
     directory: /docker
     schedule:
       interval: weekly
+    ignore:
+      # The frontend build stage stays on a Node LTS line; odd-numbered majors are short-lived
+      # (Dependabot #70, node 25). Moving to the next LTS is a deliberate change.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
