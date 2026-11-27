@@ -46,6 +46,10 @@ builder.Services.AddWondarrTorznab();
 // docker/Dockerfile), so the host gets 8 s: slskd's SIGTERM wait and an import in flight must fit in it.
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(8));
 
+// Serilog swallows its own sink failures unless told otherwise; send them to stderr (docker logs).
+// SelfLog messages are Serilog's own and carry no event data, only exceptions and file paths.
+Serilog.Debugging.SelfLog.Enable(message => Console.Error.WriteLine("serilog: " + message.TrimEnd()));
+
 // Every sink is behind the secret registry, so nothing logged can leak the API key.
 builder.Host.UseSerilog((_, services, loggerConfiguration) => LoggingSetup.Configure(
     loggerConfiguration,
