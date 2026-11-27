@@ -58,7 +58,11 @@ public static class LoggingSetup
                 rollOnFileSizeLimit: true,
                 fileSizeLimitBytes: options.FileSizeLimitMb * 1024L * 1024L,
                 retainedFileCountLimit: options.RetainedFiles,
-                shared: true);
+                // Not shared: Wondarr is the only process writing these files, and shared mode guards each
+                // write with a .NET named mutex that fails inside the container (every open was reported as
+                // "locked", so no file was written from 2026-10-14 to M-75). LogFileReader opens the files
+                // with FileShare.ReadWrite, so the System pages can still read the file being written.
+                shared: false);
     }
 
     /// <summary>
