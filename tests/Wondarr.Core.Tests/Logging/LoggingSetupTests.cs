@@ -52,6 +52,23 @@ public class LoggingSetupTests
     }
 
     [Fact]
+    public void The_file_being_written_can_be_read_the_way_the_log_reader_opens_it()
+    {
+        using var directory = new TemporaryConfigDirectory();
+        using var logger = CreateLogger(new LogOptions(), directory.Paths, new SecretRegistry());
+
+        logger.Information("still open {Marker}", "m75b-marker");
+
+        using var stream = new FileStream(
+            SingleLogFile(directory.Paths),
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        reader.ReadToEnd().Should().Contain("m75b-marker");
+    }
+
+    [Fact]
     public void Never_writes_a_registered_secret()
     {
         using var directory = new TemporaryConfigDirectory();
