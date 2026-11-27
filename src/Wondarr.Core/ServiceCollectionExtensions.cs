@@ -86,6 +86,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IHealthCheck, ImportListScanWaitHealthCheck>();
         services.AddSingleton<IHealthCheck, ConfigFolderHealthCheck>();
         services.AddSingleton<IHealthCheck, LogFolderHealthCheck>();
+        services.AddSingleton<IHealthCheck>(provider => new LogWritingHealthCheck(
+            provider.GetRequiredService<WondarrPaths>(),
+            provider.GetRequiredService<TimeProvider>(),
+            new DateTimeOffset(System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime())));
 
         // The System pages read the app's own log files through this; it holds no state beyond the
         // resolved paths, so it is a singleton like the folder checks that share them.

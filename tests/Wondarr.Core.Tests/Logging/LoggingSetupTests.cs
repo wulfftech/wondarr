@@ -36,6 +36,22 @@ public class LoggingSetupTests
     }
 
     [Fact]
+    public void Writes_the_event_to_todays_file_under_the_name_the_health_check_looks_for()
+    {
+        using var directory = new TemporaryConfigDirectory();
+        var logger = CreateLogger(new LogOptions(), directory.Paths, new SecretRegistry());
+
+        logger.Information("sink check {Marker}", "m75-marker");
+        logger.Dispose();
+
+        var expected = Path.Combine(
+            directory.Paths.LogsDir,
+            $"wondarr-{DateTime.Now:yyyyMMdd}.json");
+        File.Exists(expected).Should().BeTrue();
+        File.ReadAllText(expected).Should().Contain("m75-marker");
+    }
+
+    [Fact]
     public void Never_writes_a_registered_secret()
     {
         using var directory = new TemporaryConfigDirectory();
